@@ -31,7 +31,7 @@ async function buildPdf(rows: any[], origin: string): Promise<Buffer> {
       const buf = Buffer.concat(chunks.map((c) => Buffer.from(c)));
       resolve(buf);
     });
-    doc.on("error", (err) => reject(err));
+    doc.on("error", (err: unknown) => reject(err));
   });
 
   // ==== ENCABEZADO ====
