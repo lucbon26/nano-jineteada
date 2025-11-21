@@ -9,12 +9,19 @@ export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 export const revalidate = 0;
 
-async function loadImageBuffer(staticPath: string, baseUrl: string) {
-  // Combinar la URL base del request con el path del import
-  const imageUrl = new URL(staticPath, baseUrl).toString();
+async function loadImageBuffer(
+  staticPath: string | { src: string },
+  baseUrl: string
+) {
+  const path =
+    typeof staticPath === "string" ? staticPath : staticPath.src;
+
+  const imageUrl = new URL(path, baseUrl).toString();
 
   const res = await fetch(imageUrl);
-  if (!res.ok) throw new Error("No pude cargar " + staticPath);
+  if (!res.ok) {
+    throw new Error("No pude cargar " + path);
+  }
 
   const arr = await res.arrayBuffer();
   return Buffer.from(arr);
