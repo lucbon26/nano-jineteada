@@ -1,0 +1,14 @@
+/*
+Sugerencia: agregá en tu layout un botón de "Salir" para cerrar sesión:
+
+"use client";
+export function LogoutButton(){
+  async function logout(){
+    await fetch("/api/auth/logout", { method:"POST" });
+    window.location.href = "/login";
+  }
+  return <button className="text-sm underline" onClick={logout}>Salir</button>;
+}
+
+Luego, importalo y colocalo en el header cuando estés en /admin/*.
+*/

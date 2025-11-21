@@ -1,0 +1,118 @@
+/* ===== Jineteada – Theme (style-only) =====
+   Seguro: no cambia HTML ni JS. Ajustes suaves de tipografía, botones y tablas.
+   Puedes usar este archivo como src/app/globals.css *o* public/jineteada-theme.css
+*/
+
+:root{
+  --bg:#f7f8fc;
+  --card:#ffffff;
+  --text:#0f172a;
+  --muted:#6b7280;
+  --brand:#0ea5e9;
+  --brand-600:#0284c7;
+  --line:#e6e8ef;
+  --soft:#f3f5fa;
+  --ring:0 0 0 3px rgba(14,165,233,.25);
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Noto Sans", "Helvetica Neue", Arial;
+  color:var(--text);
+  background:var(--bg);
+  line-height:1.45;
+}
+
+/* Container helper (solo si ya tienes un contenedor, no obliga estructura) */
+.container,.page{max-width:1100px;margin:28px auto;padding:0 20px}
+
+/* Headings */
+h1{font-size:clamp(26px,3vw,34px);margin:8px 0 16px}
+h2{font-size:20px;margin:22px 0 10px}
+
+/* Sections as soft cards */
+section,.card{
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:14px;
+  margin:12px 0;
+  box-shadow: 0 1px 4px rgba(16,24,40,.04);
+}
+
+/* Controls */
+button,.btn{
+  appearance:none;
+  border:1px solid var(--brand);
+  background:var(--brand);
+  color:#fff;
+  padding:8px 12px;
+  border-radius:10px;
+  font-weight:600;
+  cursor:pointer;
+  transition: .15s ease;
+}
+button:hover,.btn:hover{ background:var(--brand-600); border-color:var(--brand-600); }
+button:focus,.btn:focus{ outline:none; box-shadow: var(--ring); }
+button.secondary{ background:transparent; color:var(--text); border-color:var(--line); }
+button.secondary:hover{ background:var(--soft); }
+
+select, input[type="text"], input[type="file"], input[type="number"], input[type="date"]{
+  border:1px solid var(--line);
+  background:#fff;
+  padding:8px 10px;
+  border-radius:10px;
+  outline:none;
+  transition:.15s ease;
+}
+select:focus, input[type="text"]:focus, input[type="file"]:focus, input[type="number"]:focus, input[type="date"]:focus{
+  box-shadow: var(--ring);
+  border-color:var(--brand);
+}
+
+.controls{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:10px 0 12px; }
+
+/* Tables */
+table{
+  width:100%;
+  border-collapse:separate;
+  border-spacing:0;
+  background:#fff;
+  border:1px solid var(--line);
+  border-radius:12px;
+  overflow:hidden;
+}
+th, td{
+  padding:10px 12px;
+  border-bottom:1px solid var(--line);
+  vertical-align:middle;
+}
+th{ text-align:left; font-weight:700; background:var(--soft); color:#111827; }
+tr:last-child td{ border-bottom:none; }
+tbody tr:hover{ background:#fafcff; }
+
+/* Minor helpers */
+.subtle{ color:var(--muted); font-size:14px; }
+.pill{ display:inline-block; padding:2px 8px; border-radius:999px; background:#f1f5f9; border:1px solid var(--line); font-size:12px; }
+
+/* File input button style */
+input[type="file"]::-webkit-file-upload-button{
+  background:var(--brand);
+  color:#fff;
+  border:0;
+  border-radius:8px;
+  padding:8px 10px;
+  margin-right:10px;
+  cursor:pointer;
+}
+input[type="file"]::file-selector-button{
+  background:var(--brand);
+  color:#fff;
+  border:0;
+  border-radius:8px;
+  padding:8px 10px;
+  margin-right:10px;
+  cursor:pointer;
+}
