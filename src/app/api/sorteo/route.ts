@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supaAnon, supaService, tables } from "@/lib/supa";
+import { supaAnon, supaService, tables } from "../../../lib/supa";
 
 function shuffle<T>(arr: T[]) {
   for (let i = arr.length - 1; i > 0; i--) {

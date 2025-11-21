@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supaAnon, tables } from "@/lib/supa";
-
+import { supaAnon, tables } from "../../../lib/supa";
 /**
  * /api/sedes
  * - Siempre devuelve JSON
