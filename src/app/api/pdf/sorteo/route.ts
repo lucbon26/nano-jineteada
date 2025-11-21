@@ -369,13 +369,13 @@ return new NextResponse(pdfU8.buffer as ArrayBuffer, {
     }));
 
     const pdfU8 = await buildPdf(rows, url, categoriaNombre);
-    return new NextResponse(pdfU8, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": "inline; filename=sorteo.pdf",
-      },
-    });
+return new NextResponse(pdfU8.buffer as ArrayBuffer, {
+  status: 200,
+  headers: {
+    "Content-Type": "application/pdf",
+    "Content-Disposition": "inline; filename=sorteo.pdf",
+  },
+});
   } catch (e: any) {
     console.error(e);
     return NextResponse.json(
