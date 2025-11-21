@@ -393,10 +393,15 @@ export async function GET(req: NextRequest) {
     } catch {}
 const pdfU8 = await buildPdf(rows, url);
 
-// pdfU8 es un Uint8Array → lo convertimos a Blob para que NextResponse lo acepte
-const pdfBlob = new Blob([pdfU8], { type: "application/pdf" });
+// pdfU8 es un Uint8Array → lo convertimos a Buffer y luego a ArrayBuffer para Edge
+const nodeBuffer = Buffer.from(pdfU8);
 
-return new NextResponse(pdfBlob, {
+const arrayBuffer = nodeBuffer.buffer.slice(
+  nodeBuffer.byteOffset,
+  nodeBuffer.byteOffset + nodeBuffer.byteLength
+);
+
+return new NextResponse(arrayBuffer, {
   status: 200,
   headers: {
     "Content-Type": "application/pdf",
