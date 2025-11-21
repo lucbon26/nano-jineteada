@@ -321,9 +321,25 @@ export async function GET(req: NextRequest) {
     }
 
     if (!selSorteoId) {
-      const pdfU8 = await buildPdf([], url);
-      return new NextResponse(pdfU8, { status: 200, headers: { "Content-Type": "application/pdf" } });
+  const pdfU8 = await buildPdf([], url);
+
+  // Convertir Uint8Array → Buffer normal
+  const nodeBuffer = Buffer.from(pdfU8);
+
+  // Buffer → ArrayBuffer (Edge Runtime compatible)
+  const arrayBuffer = nodeBuffer.buffer.slice(
+    nodeBuffer.byteOffset,
+    nodeBuffer.byteOffset + nodeBuffer.byteLength
+  );
+
+  return new NextResponse(arrayBuffer, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": "inline; filename=sorteo.pdf"
     }
+  });
+}
 
     const { data: emp } = await supa
       .from(tables.emparejamientos)
