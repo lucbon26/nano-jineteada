@@ -9,6 +9,17 @@ export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 export const revalidate = 0;
 
+async function loadImageBuffer(staticPath: string, baseUrl: string) {
+  // Combinar la URL base del request con el path del import
+  const imageUrl = new URL(staticPath, baseUrl).toString();
+
+  const res = await fetch(imageUrl);
+  if (!res.ok) throw new Error("No pude cargar " + staticPath);
+
+  const arr = await res.arrayBuffer();
+  return Buffer.from(arr);
+}
+
 const pad2 = (n: number) => String(n).padStart(2, "0");
 function nowAR() {
   const d = new Date();
@@ -46,6 +57,9 @@ type RowIn = {
 
 async function buildPdf(rowsIn: RowIn[], url: URL) {
   const doc = new PDFDocument({ size: "A4", layout: "landscape", margin: 36 });
+   // Cargar imágenes como buffers reales
+  const logoBuffer = await loadImageBuffer(logoUrl, url);
+  const banderaBuffer = await loadImageBuffer(banderaUrl, url);
   const chunks: Uint8Array[] = [];
   // @ts-ignore
   doc.on("data", (c: any) => chunks.push(c));
@@ -64,10 +78,10 @@ async function buildPdf(rowsIn: RowIn[], url: URL) {
     const logoDataUrl = await fetchAsDataURL(base, (logoUrl as any).src ?? (logoUrl as any) ?? (logoUrl as any));
     const banderaDataUrl = await fetchAsDataURL(base, (banderaUrl as any).src ?? (banderaUrl as any) ?? (banderaUrl as any));
     const y = doc.y, h = 28;
-    if (logoDataUrl) doc.image(logoDataUrl, doc.page.margins.left, y, { height: h });
+    if (logoDataUrl) doc.image(logoBuffer, 40, 40, { width: 80 });
     if (banderaDataUrl) {
       const xRight = doc.page.width - doc.page.margins.right - 60;
-      doc.image(banderaDataUrl, xRight, y, { height: h });
+      doc.image(banderaBuffer, 480, 40, { width: 80 });
     }
     doc.moveDown(0.2);
   }
@@ -107,7 +121,9 @@ const categoriaNombre = categoriaRow?.nombre ?? "";*/
 
   //doc.font("Helvetica").fontSize(16).text("Clasificatorio rumbo a Jesús María 2026 - GURUPA", { align: "center" });
   //doc.font("Helvetica").fontSize(16).text("Clasificatorio rumbo a Jesús María 2026 - CLINA", { align: "center" });
-  doc.font("Helvetica").fontSize(16).text("Clasificatorio rumbo a Jesús María 2026 - BASTOS", { align: "center" });
+  //doc.font("Helvetica").fontSize(16).text("Clasificatorio rumbo a Jesús María 2026 - BASTOS", { align: "center" });
+  doc.font("Helvetica").fontSize(16).text("Clasificatorio rumbo a Jesús María 2026", { align: "center" });
+
 
  //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
  //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
