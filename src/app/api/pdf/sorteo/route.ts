@@ -132,10 +132,11 @@ async function buildPdf(
   doc.moveDown(0.2);
 
   const baseSub = "Clasificatorio rumbo a Jesús María 2026";
-  const sub =
+  const catUpper =
     categoriaNombre && categoriaNombre.trim().length > 0
-      ? `${baseSub} - ${categoriaNombre.trim()}`
-      : baseSub;
+      ? categoriaNombre.trim().toUpperCase()
+      : "";
+  const sub = catUpper ? `${baseSub} - ${catUpper}` : baseSub;
 
   doc.font("Helvetica").fontSize(16).text(sub, { align: "center" });
 
@@ -181,9 +182,9 @@ async function buildPdf(
 
   const fontHeader = "Helvetica-Bold";
   const fontBody = "Helvetica";
-  const sizeHeader = 10;
-  const sizeBody = 8;
-  const padH = 8;
+  const sizeHeader = 11; // más grande
+  const sizeBody = 10;   // más grande
+  const padH = 10;
   const n = headers.length;
   const natural: number[] = Array(n).fill(0);
 
@@ -225,7 +226,7 @@ async function buildPdf(
   let y = doc.y;
 
   const drawRow = (cols: string[], isHeader = false) => {
-    const h = isHeader ? 20 : 16;
+    const h = isHeader ? 24 : 21; // filas más altas
     if (y + h > doc.page.height - doc.page.margins.bottom) {
       doc.addPage();
       y = doc.page.margins.top;
@@ -238,7 +239,10 @@ async function buildPdf(
       doc
         .font(isHeader ? fontHeader : fontBody)
         .fontSize(isHeader ? sizeHeader : sizeBody)
-        .text(txt, x + 3, y + 3, { width: w - 6, ellipsis: true });
+        .text(txt, x + 3, y + (isHeader ? 4 : 3), {
+          width: w - 6,
+          ellipsis: true,
+        });
       x += w;
     }
     y += h;
