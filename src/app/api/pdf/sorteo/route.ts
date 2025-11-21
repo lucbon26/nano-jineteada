@@ -251,12 +251,10 @@ export async function POST(req: NextRequest) {
         });
       }
     } catch {}
-    const pdfU8 = await buildPdf(rows, url);
+    // Convertir Uint8Array a ArrayBuffer tradicional
+const pdfBuffer = pdfU8.buffer.slice(pdfU8.byteOffset, pdfU8.byteOffset + pdfU8.byteLength);
 
-// pdfU8 es un Uint8Array → lo convertimos a Blob para que NextResponse lo acepte
-const pdfBlob = new Blob([pdfU8], { type: "application/pdf" });
-
-return new NextResponse(pdfBlob, {
+return new NextResponse(pdfBuffer, {
   status: 200,
   headers: {
     "Content-Type": "application/pdf",
