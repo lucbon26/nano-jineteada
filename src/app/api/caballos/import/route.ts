@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supaService, tables } from "@/lib/supa";
+import { supaService, tables } from "../../../../lib/supa";
 import * as XLSX from "xlsx";
 
 export const dynamic = "force-dynamic";

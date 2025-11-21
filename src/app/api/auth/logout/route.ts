@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { clearSessionCookie } from "@/lib/auth";
+import { clearSessionCookie } from "../../../../lib/supa";
 
 export async function POST() {
   const clr = clearSessionCookie();

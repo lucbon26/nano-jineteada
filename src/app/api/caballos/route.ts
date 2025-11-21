@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supaAnon, tables } from "@/lib/supa";
+import { supaAnon, tables  } from "../../../../lib/supa";
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
