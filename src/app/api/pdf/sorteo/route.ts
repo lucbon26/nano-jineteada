@@ -296,7 +296,7 @@ export async function GET(req: NextRequest) {
     let categoriaNombre: string | undefined = undefined;
     try {
       const { data: categoriaRow, error: catErr } = await supa
-        .from("categorias") // misma tabla que usa /admin/preparar
+        .from("categorias")
         .select("id, nombre")
         .eq("id", categoriaId)
         .maybeSingle();
@@ -311,13 +311,13 @@ export async function GET(req: NextRequest) {
 
     if (!selSorteoId) {
       const pdfU8 = await buildPdf([], url, categoriaNombre);
-return new NextResponse(pdfU8.buffer as ArrayBuffer, {
-  status: 200,
-  headers: {
-    "Content-Type": "application/pdf",
-    "Content-Disposition": "inline; filename=sorteo.pdf",
-  },
-});
+      return new NextResponse(pdfU8.buffer as ArrayBuffer, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": "inline; filename=sorteo.pdf",
+        },
+      });
     }
 
     // Emparejamientos del sorteo
@@ -369,13 +369,13 @@ return new NextResponse(pdfU8.buffer as ArrayBuffer, {
     }));
 
     const pdfU8 = await buildPdf(rows, url, categoriaNombre);
-return new NextResponse(pdfU8.buffer as ArrayBuffer, {
-  status: 200,
-  headers: {
-    "Content-Type": "application/pdf",
-    "Content-Disposition": "inline; filename=sorteo.pdf",
-  },
-});
+    return new NextResponse(pdfU8.buffer as ArrayBuffer, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": "inline; filename=sorteo.pdf",
+      },
+    });
   } catch (e: any) {
     console.error(e);
     return NextResponse.json(
@@ -442,7 +442,7 @@ export async function POST(req: NextRequest) {
     }
 
     const pdfU8 = await buildPdf(rows, url, categoriaNombre);
-    return new NextResponse(pdfU8, {
+    return new NextResponse(pdfU8.buffer as ArrayBuffer, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
