@@ -22,15 +22,16 @@ async function loadImageDataURL(origin: string, publicPath: string): Promise<str
     const contentType = res.headers.get("content-type") || "image/png";
     const base64 = Buffer.from(arrayBuffer).toString("base64");
     return `data:${contentType};base64,${base64}`;
-  } catch {
+  } catch (e) {
+    console.error("Error cargando imagen para PDF:", e);
     return null;
   }
 }
 
 /**
- * Construye el PDF en memoria y devuelve un Uint8Array con el binario.
- * Espera filas con las claves:
- *  - "#": número correlativo
+ * Construye el PDF en memoria y devuelve un Uint8Array.
+ * `rows` debe ser un array de objetos con campos:
+ *  - "#"
  *  - palenque
  *  - jinete
  *  - localidad
@@ -76,8 +77,9 @@ async function buildPdf(rows: any[], origin: string, categoriaTexto?: string): P
 
   doc.moveDown(0.5);
   const ahora = new Date();
-  // Usamos la hora local del servidor pero sin mencionar GMT para que no confunda
+  // Forzamos zona horaria de Argentina (GMT-3)
   const fechaStr = ahora.toLocaleString("es-AR", {
+    timeZone: "America/Argentina/Buenos_Aires",
     hour12: false,
     year: "numeric",
     month: "2-digit",
@@ -85,7 +87,8 @@ async function buildPdf(rows: any[], origin: string, categoriaTexto?: string): P
     hour: "2-digit",
     minute: "2-digit",
   });
-  doc.fontSize(10).text(`Generado: ${fechaStr}`, { align: "center" });
+  const generadoStr = `${fechaStr} GMT-3`;
+  doc.fontSize(10).text(`Generado: ${generadoStr}`, { align: "center" });
 
   doc.moveDown(1.2);
 
@@ -94,16 +97,15 @@ async function buildPdf(rows: any[], origin: string, categoriaTexto?: string): P
   const banderaDataUrl = await loadImageDataURL(origin, "/bandera.png");
 
   const headerY = doc.y;
-  const logoH = 22;
+  const logoHeight = 28;
 
   if (logoDataUrl) {
-    // @ts-ignore - pdfkit acepta data URLs
-    doc.image(logoDataUrl, doc.page.margins.left, headerY, { height: logoH });
+    doc.image(logoDataUrl, doc.page.margins.left, headerY, { height: logoHeight });
   }
   if (banderaDataUrl) {
-    const xRight = doc.page.width - doc.page.margins.right - 60;
-    // @ts-ignore
-    doc.image(banderaDataUrl, xRight, headerY, { height: logoH });
+    const imgWidth = 60;
+    const xRight = doc.page.width - doc.page.margins.right - imgWidth;
+    doc.image(banderaDataUrl, xRight, headerY, { width: imgWidth });
   }
 
   doc.moveDown(1.4);
@@ -138,46 +140,38 @@ async function buildPdf(rows: any[], origin: string, categoriaTexto?: string): P
     doc.restore();
   }
 
-  // Header
-  let x = startX;
-  let y = startY;
-  colDefs.forEach((col) => {
-    drawCell(x, y, col.width, rowHeight, col.label, true);
-    x += col.width;
-  });
+  // Header de tabla
+  let cursorY = startY;
+  let cursorX = startX;
+  for (const col of colDefs) {
+    drawCell(cursorX, cursorY, col.width, rowHeight, col.label, true);
+    cursorX += col.width;
+  }
+  cursorY += rowHeight;
 
-  // Body
-  const safeRows = Array.isArray(rows) ? rows : [];
-  let index = 1;
-  for (const r of safeRows) {
-    y += rowHeight;
-    x = startX;
-
-    const get = (k: string): string => {
-      if (k === "#") return index.toString().padStart(2, "0");
-      const v =
-        (r && (r as any)[k]) ??
-        (r && (r as any)[k.toLowerCase()]) ??
-        (r && (r as any)[k.toUpperCase()]);
-      return v == null ? "" : String(v);
-    };
-
-    colDefs.forEach((col) => {
-      drawCell(x, y, col.width, rowHeight, get(col.key as string));
-      x += col.width;
-    });
-
-    index++;
-    // Nueva página si nos pasamos
-    if (y + rowHeight * 2 > doc.page.height - doc.page.margins.bottom) {
+  // Filas
+  for (const row of rows) {
+    cursorX = startX;
+    const pageBottom = doc.page.height - doc.page.margins.bottom - rowHeight;
+    if (cursorY > pageBottom) {
       doc.addPage();
-      y = doc.page.margins.top;
-      x = startX;
-      colDefs.forEach((col) => {
-        drawCell(x, y, col.width, rowHeight, col.label, true);
-        x += col.width;
-      });
+      cursorY = doc.page.margins.top;
+
+      // Redibujar header en nueva página
+      let hx = startX;
+      for (const col of colDefs) {
+        drawCell(hx, cursorY, col.width, rowHeight, col.label, true);
+        hx += col.width;
+      }
+      cursorY += rowHeight;
     }
+
+    for (const col of colDefs) {
+      const value = row[col.key] != null ? String(row[col.key]) : "";
+      drawCell(cursorX, cursorY, col.width, rowHeight, value);
+      cursorX += col.width;
+    }
+    cursorY += rowHeight;
   }
 
   doc.end();
@@ -190,97 +184,126 @@ async function buildPdf(rows: any[], origin: string, categoriaTexto?: string): P
  */
 export async function GET(req: NextRequest) {
   try {
-    const url = new URL(req.url);
-    const sedeId = url.searchParams.get("sedeId");
-    const categoriaId = url.searchParams.get("categoriaId");
+    const url = req.nextUrl ?? new URL(req.url, "http://localhost:3000");
+
+    // Parámetros: sede, categoría, sorteo opcional y nombre de categoría para el título
+    const sedeId = url.searchParams.get("sedeId") ?? url.searchParams.get("sedeld");
+    const categoriaId = url.searchParams.get("categoriaId") ?? url.searchParams.get("categoria");
+    const sorteoIdParam = url.searchParams.get("sorteoId");
     const categoriaNombre = url.searchParams.get("categoriaNombre") || undefined;
 
     if (!sedeId || !categoriaId) {
-      return NextResponse.json(
-        { error: "sedeId y categoriaId requeridos" },
-        { status: 400 },
-      );
+      // No hay datos mínimos -> devolvemos PDF vacío pero válido
+      const pdfU8 = await buildPdf([], url.origin, categoriaNombre);
+      const arrayBuffer = pdfU8.buffer as ArrayBuffer;
+      return new NextResponse(arrayBuffer as any, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": "inline; filename=sorteo.pdf",
+        },
+      });
     }
 
     const supa = supaAnon();
-    // Intentamos traer todo de la tabla de emparejamientos
-    const { data, error } = await supa
+
+    // 1) Determinar sorteo a usar
+    let selSorteoId: string | null = null;
+    if (sorteoIdParam && sorteoIdParam.trim()) {
+      selSorteoId = sorteoIdParam.trim();
+    } else {
+      const { data: last, error: lastErr } = await supa
+        .from(tables.sorteos)
+        .select("id")
+        .eq("sede_id", sedeId)
+        .eq("categoria_id", categoriaId)
+        .order("id", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (lastErr) {
+        console.error("Error leyendo último sorteo:", lastErr);
+      }
+      selSorteoId = last?.id ?? null;
+    }
+
+    if (!selSorteoId) {
+      const pdfU8 = await buildPdf([], url.origin, categoriaNombre);
+      const arrayBuffer = pdfU8.buffer as ArrayBuffer;
+      return new NextResponse(arrayBuffer as any, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": "inline; filename=sorteo.pdf",
+        },
+      });
+    }
+
+    // 2) Traer emparejamientos de ese sorteo
+    const { data: emp, error: empErr } = await supa
       .from(tables.emparejamientos)
-      .select("*")
-      .eq("sede_id", sedeId)
-      .eq("categoria_id", categoriaId)
+      .select("orden, jinete_id, caballo_nombre, tropilla")
+      .eq("sorteo_id", selSorteoId)
       .order("orden", { ascending: true });
 
-    if (error) {
-      console.error("Error Supabase PDF:", error);
+    if (empErr) {
+      console.error("Error Supabase emparejamientos:", empErr);
       return NextResponse.json(
-        { error: error.message || "Error consultando datos" },
+        { error: empErr.message || "Error consultando emparejamientos" },
         { status: 500 },
       );
     }
 
-    const rawRows = data || [];
+    const empRows = emp || [];
 
-    // Mapear a las claves que espera el PDF
-    const rows = rawRows.map((r: any, idx: number) => ({
-      "#": idx + 1,
-      palenque: r.palenque ?? r.nro_palenque ?? r.palenque_nro ?? "",
-      jinete:
-        r.jinete ??
-        r.jinete_nombre ??
-        r.nombre_jinete ??
-        r.jineteNombre ??
-        "",
-      localidad:
-        r.localidad ??
-        r.jinete_localidad ??
-        r.localidad_jinete ??
-        "",
-      caballo:
-        r.caballo ??
-        r.caballo_nombre ??
-        r.nombre_caballo ??
-        "",
-      tropilla:
-        r.tropilla ??
-        r.tropilla_nombre ??
-        r.nombre_tropilla ??
-        "",
-      puntos: r.puntos ?? r.puntaje ?? "",
-      obs: r.obs ?? r.observaciones ?? r.observacion ?? "",
-    }));
-
-    const pdfU8 = await buildPdf(rows, url.origin, categoriaNombre);
-    const arrayBuffer = pdfU8.buffer as ArrayBuffer;
-
-    return new NextResponse(arrayBuffer as any, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": "inline; filename=sorteo.pdf",
-      },
-    });
-  } catch (e: any) {
-    console.error(e);
-    return NextResponse.json(
-      { error: e?.message || "Error generando PDF" },
-      { status: 500 },
+    // 3) Traer nombres y localidades de jinetes
+    const jineteIds = Array.from(
+      new Set(
+        empRows
+          .map((r: any) => r.jinete_id)
+          .filter((v) => v !== null && v !== undefined)
+          .map((v) => String(v)),
+      ),
     );
-  }
-}
 
-/**
- * POST: PDF usando filas que vienen desde la UI (sin tocar DB).
- *  Se puede enviar:
- *    { rows: [...], categoriaNombre?: "BASTOS" }
- */
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json().catch(() => ({}));
-    const rows = (body && (body as any).rows) || body || [];
-    const categoriaNombre =
-      (body && (body as any).categoriaNombre) || undefined;
-    const url = new URL(req.url);
+    const nombres = new Map<string, string>();
+    const localidades = new Map<string, string>();
+
+    if (jineteIds.length > 0) {
+      const { data: js, error: jsErr } = await supa
+        .from(tables.jinetes)
+        .select("id, nombre, apellido, localidad")
+        .in("id", jineteIds);
+
+      if (jsErr) {
+        console.error("Error Supabase jinetes:", jsErr);
+      } else {
+        (js || []).forEach((j: any) => {
+          const idStr = String(j.id);
+          const nombreCompleto =
+            [j.nombre, j.apellido].filter(Boolean).join(" ").trim() || idStr;
+          nombres.set(idStr, nombreCompleto);
+          if (j.localidad) {
+            localidades.set(idStr, String(j.localidad));
+          }
+        });
+      }
+    }
+
+    // 4) Armar filas para el PDF (formato que espera buildPdf)
+    const rows = empRows.map((r: any, idx: number) => {
+      const idStr = r.jinete_id != null ? String(r.jinete_id) : "";
+      return {
+        "#": idx + 1,
+        palenque: String((idx % 3) + 1),
+        jinete: nombres.get(idStr) ?? idStr,
+        localidad: localidades.get(idStr) ?? "",
+        caballo: r.caballo_nombre ?? "",
+        tropilla: r.tropilla ?? "",
+        puntos: "",
+        obs: "",
+      };
+    });
 
     const pdfU8 = await buildPdf(rows, url.origin, categoriaNombre);
     const arrayBuffer = pdfU8.buffer as ArrayBuffer;
