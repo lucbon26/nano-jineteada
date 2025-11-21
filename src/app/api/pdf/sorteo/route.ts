@@ -265,7 +265,7 @@ export async function GET(req: NextRequest) {
 
     if (!sedeId || !categoriaId) {
       const pdfU8 = await buildPdf([], url, undefined);
-      return new NextResponse(pdfU8, {
+      return new NextResponse(pdfU8.buffer as ArrayBuffer, {
         status: 200,
         headers: {
           "Content-Type": "application/pdf",
