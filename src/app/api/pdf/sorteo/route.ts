@@ -173,7 +173,7 @@ async function buildPdf(
     doc.moveDown(1);
     doc
       .font("Helvetica-Bold")
-      .fontSize(16)
+      .fontSize(12)
       .fillColor("#b00")
       .text("No hay emparejamientos para imprimir.", { align: "center" });
     doc.end();
