@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import PDFDocument from "pdfkit/js/pdfkit.standalone.js";
 import { supaAnon, tables } from "../../../../lib/supa";
-import logoUrl from "../../../../media/logo.png";
-import banderaUrl from "../../../../media/bandera.png";
+import path from "path";
+import { readFile } from "fs/promises";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,38 +65,33 @@ type RowIn = {
   jinete_id?: string | number;
 };
 
-async function buildPdf(rowsIn: RowIn[], url: URL) {
+async function buildPdf(rows: any[], url: URL) {
   const doc = new PDFDocument({ size: "A4", layout: "landscape", margin: 36 });
-   // Cargar imágenes como buffers reales
-  const logoBuffer = await loadImageBuffer(logoUrl, url);
-  const banderaBuffer = await loadImageBuffer(banderaUrl, url);
+
+  // Cargar imágenes desde /public/pdf/
+  const logoBuffer = await readFile(
+    path.join(process.cwd(), "public", "pdf", "logo.png")
+  );
+  const banderaBuffer = await readFile(
+    path.join(process.cwd(), "public", "pdf", "bandera.png")
+  );
+
   const chunks: Uint8Array[] = [];
   // @ts-ignore
-  doc.on("data", (c: any) => chunks.push(c));
-  const done: Promise<Uint8Array> = new Promise((resolve) => {
-    doc.on("end", () => {
-      let total = 0; for (const c of chunks) total += c.length;
-      const out = new Uint8Array(total); let off = 0;
-      for (const c of chunks) { out.set(c, off); off += c.length; }
-      resolve(out);
-    });
-  });
+  doc.on("data", (c: Uint8Array) => chunks.push(c));
+  doc.on("end", () => { /* ... tu código de armado de Uint8Array ... */ });
 
-  // Logos
-  {
-    const base = url.origin || "http://localhost:3000";
-    const logoDataUrl = await fetchAsDataURL(base, (logoUrl as any).src ?? (logoUrl as any) ?? (logoUrl as any));
-    const banderaDataUrl = await fetchAsDataURL(base, (banderaUrl as any).src ?? (banderaUrl as any) ?? (banderaUrl as any));
-    const y = doc.y, h = 28;
-    if (logoDataUrl) doc.image(logoBuffer, 40, 40, { width: 80 });
-    if (banderaDataUrl) {
-      const xRight = doc.page.width - doc.page.margins.right - 60;
-      doc.image(banderaBuffer, 480, 40, { width: 80 });
-    }
-    doc.moveDown(0.2);
-  }
-// === Leer la categoría seleccionada, tal como el selector de /admin/preparar ===
+  // === Logos en el PDF ===
+  const y = doc.y;
+  const h = 28;
+  doc.image(logoBuffer, doc.page.margins.left, y, { height: h });
 
+  const xRight = doc.page.width - doc.page.margins.right - 60;
+  doc.image(banderaBuffer, xRight, y, { height: h });
+  doc.moveDown(0.2);
+
+  // ... resto de tu lógica original (títulos, tabla, etc.) ...
+}
 const supa = supaAnon();
 
 // === Leer la categoría seleccionada, tal como el selector de /admin/preparar ===
