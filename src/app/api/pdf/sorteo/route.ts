@@ -252,12 +252,19 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
 
-    // Generar el PDF → esto devuelve un Uint8Array
+   // Generar el PDF → devuelve un Uint8Array
 const pdfU8 = await buildPdf(rows, url);
-    // Convertir Uint8Array a ArrayBuffer tradicional
-const pdfBuffer = pdfU8.buffer.slice(pdfU8.byteOffset, pdfU8.byteOffset + pdfU8.byteLength);
 
-return new NextResponse(pdfBuffer, {
+// Convertir a Buffer de Node (eliminando SharedArrayBuffer)
+const nodeBuffer = Buffer.from(pdfU8);
+
+// Convertir Buffer → ArrayBuffer, que sí acepta NextResponse en Edge
+const arrayBuffer = nodeBuffer.buffer.slice(
+  nodeBuffer.byteOffset,
+  nodeBuffer.byteOffset + nodeBuffer.byteLength
+);
+
+return new NextResponse(arrayBuffer, {
   status: 200,
   headers: {
     "Content-Type": "application/pdf",
