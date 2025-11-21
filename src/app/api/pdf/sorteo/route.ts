@@ -345,10 +345,17 @@ export async function GET(req: NextRequest) {
       }
     } catch {}
     const pdfU8 = await buildPdf(rows, url);
-    return new NextResponse(pdfU8, {
-      status: 200,
-      headers: { "Content-Type": "application/pdf", "Content-Disposition": "inline; filename=sorteo.pdf" }
-    });
+
+// Convertimos el Uint8Array a Blob para que NextResponse lo acepte sin drama
+const pdfBlob = new Blob([pdfU8], { type: "application/pdf" });
+
+return new NextResponse(pdfBlob, {
+  status: 200,
+  headers: {
+    "Content-Type": "application/pdf",
+    "Content-Disposition": "inline; filename=sorteo.pdf"
+  }
+});
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Error generando PDF" }, { status: 500 });
   }
