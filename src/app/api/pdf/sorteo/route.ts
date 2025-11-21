@@ -173,7 +173,7 @@ async function buildPdf(
     doc.moveDown(1);
     doc
       .font("Helvetica-Bold")
-      .fontSize(12)
+      .fontSize(16)
       .fillColor("#b00")
       .text("No hay emparejamientos para imprimir.", { align: "center" });
     doc.end();
@@ -182,8 +182,8 @@ async function buildPdf(
 
   const fontHeader = "Helvetica-Bold";
   const fontBody = "Helvetica";
-  const sizeHeader = 11; // más grande
-  const sizeBody = 10;   // más grande
+  const sizeHeader = 13; // más grande
+  const sizeBody = 12;   // más grande
   const padH = 10;
   const n = headers.length;
   const natural: number[] = Array(n).fill(0);
