@@ -11,12 +11,15 @@ export const revalidate = 0;
 
 async function loadImageBuffer(
   staticPath: string | { src: string },
-  baseUrl: string
+  baseUrl: string | URL
 ) {
   const path =
     typeof staticPath === "string" ? staticPath : staticPath.src;
 
-  const imageUrl = new URL(path, baseUrl).toString();
+  const base =
+    typeof baseUrl === "string" ? baseUrl : baseUrl.toString();
+
+  const imageUrl = new URL(path, base).toString();
 
   const res = await fetch(imageUrl);
   if (!res.ok) {
