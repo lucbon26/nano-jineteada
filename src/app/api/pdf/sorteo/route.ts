@@ -284,10 +284,26 @@ export async function GET(req: NextRequest) {
     const categoriaId = url.searchParams.get("categoriaId") ?? url.searchParams.get("categoria");
     const sorteoId = url.searchParams.get("sorteoId");
 
-    if (!sedeId || !categoriaId) {
-      const pdfU8 = await buildPdf([], url);
-      return new NextResponse(pdfU8, { status: 200, headers: { "Content-Type": "application/pdf" } });
+   if (!sedeId || !categoriaId) {
+  const pdfU8 = await buildPdf([], url);
+
+  // Convertir Uint8Array a Buffer normal
+  const nodeBuffer = Buffer.from(pdfU8);
+
+  // Convertir Buffer → ArrayBuffer (Edge friendly)
+  const arrayBuffer = nodeBuffer.buffer.slice(
+    nodeBuffer.byteOffset,
+    nodeBuffer.byteOffset + nodeBuffer.byteLength
+  );
+
+  return new NextResponse(arrayBuffer, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": "inline; filename=sorteo.pdf"
     }
+  });
+}
 
     const supa = supaAnon();
     let selSorteoId: string | null = null;
