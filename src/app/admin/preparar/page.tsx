@@ -15,7 +15,7 @@ async function safeJson(r: Response) {
   return { data: [], error: "Respuesta no JSON" };
 }
 
-export default function Preparar(): JSX.Element {
+export default function Preparar() {
   const [sedes, setSedes] = useState<Sede[]>([]);
   const [cats, setCats] = useState<Categoria[]>([]);
   const [sedeId, setSedeId] = useState<string>("");
