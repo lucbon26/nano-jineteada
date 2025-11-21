@@ -1,40 +1,54 @@
 import { NextRequest, NextResponse } from "next/server";
+// @ts-ignore - usamos el bundle standalone de pdfkit (sin tipos TS)
 import PDFDocument from "pdfkit/js/pdfkit.standalone.js";
-import path from "path";
-import { readFile } from "fs/promises";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 export const revalidate = 0;
 
-// Intenta leer una imagen desde /public/<relativePath>.
-// Si no existe, devuelve null (para no romper el PDF).
-async function loadImageFromPublic(relativePath: string): Promise<Buffer | null> {
+/**
+ * Descarga una imagen desde /public usando fetch y la devuelve como data URL.
+ * Si falla, devuelve null (no rompemos el PDF).
+ */
+async function loadImageDataURL(origin: string, publicPath: string): Promise<string | null> {
   try {
-    const filePath = path.join(process.cwd(), "public", relativePath.replace(/^\/+/, ""));
-    const data = await readFile(filePath);
-    return data;
+    const url = new URL(publicPath, origin).toString();
+    const res = await fetch(url);
+    if (!res.ok) return null;
+
+    const arrayBuffer = await res.arrayBuffer();
+    const contentType = res.headers.get("content-type") || "image/png";
+    const base64 = Buffer.from(arrayBuffer).toString("base64");
+    return `data:${contentType};base64,${base64}`;
   } catch {
     return null;
   }
 }
 
-// Crea el PDF en memoria y devuelve un Buffer
-async function buildPdf(rows: any[], origin: string): Promise<Buffer> {
+/**
+ * Construye el PDF en memoria y devuelve un Uint8Array con el binario.
+ */
+async function buildPdf(rows: any[], origin: string): Promise<Uint8Array> {
   const doc = new PDFDocument({ size: "A4", layout: "landscape", margin: 36 });
 
   const chunks: Uint8Array[] = [];
-  const done = new Promise<Buffer>((resolve, reject) => {
+  const done = new Promise<Uint8Array>((resolve, reject) => {
     doc.on("data", (c: Uint8Array) => chunks.push(c));
     doc.on("end", () => {
-      const buf = Buffer.concat(chunks.map((c) => Buffer.from(c)));
-      resolve(buf);
+      const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
+      const merged = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const c of chunks) {
+        merged.set(c, offset);
+        offset += c.length;
+      }
+      resolve(merged);
     });
     doc.on("error", (err: unknown) => reject(err));
   });
 
-  // ==== ENCABEZADO ====
+  // === ENCABEZADO ===
   const title1 = "Campeonato Rionegrino de Jineteada";
   const title2 = "Sergio Herrera";
 
@@ -60,24 +74,26 @@ async function buildPdf(rows: any[], origin: string): Promise<Buffer> {
 
   doc.moveDown(1.2);
 
-  // ==== LOGOS (opcionales, si existen en /public) ====
-  const logo = await loadImageFromPublic("logo.png");
-  const bandera = await loadImageFromPublic("bandera.png");
+  // === LOGOS DESDE /public/logo.png y /public/bandera.png (opcionales) ===
+  const logoDataUrl = await loadImageDataURL(origin, "/logo.png");
+  const banderaDataUrl = await loadImageDataURL(origin, "/bandera.png");
 
   const headerY = doc.y;
   const logoH = 28;
 
-  if (logo) {
-    doc.image(logo, doc.page.margins.left, headerY, { height: logoH });
+  if (logoDataUrl) {
+    // @ts-ignore - pdfkit acepta data URLs
+    doc.image(logoDataUrl, doc.page.margins.left, headerY, { height: logoH });
   }
-  if (bandera) {
+  if (banderaDataUrl) {
     const xRight = doc.page.width - doc.page.margins.right - 60;
-    doc.image(bandera, xRight, headerY, { height: logoH });
+    // @ts-ignore
+    doc.image(banderaDataUrl, xRight, headerY, { height: logoH });
   }
 
   doc.moveDown(1.8);
 
-  // ==== TABLA ====
+  // === TABLA ===
   const startX = doc.page.margins.left;
   const startY = doc.y;
 
@@ -157,11 +173,13 @@ async function buildPdf(rows: any[], origin: string): Promise<Buffer> {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const rows = (body && body.rows) || body || [];
+    const rows = (body && (body as any).rows) || body || [];
     const url = new URL(req.url);
 
-    const pdfBuffer = await buildPdf(rows, url.origin);
-    return new NextResponse(pdfBuffer as any, {
+    const pdfU8 = await buildPdf(rows, url.origin);
+    const arrayBuffer = pdfU8.buffer as ArrayBuffer;
+
+    return new NextResponse(arrayBuffer as any, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
@@ -177,13 +195,14 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET: por ahora genera un PDF vacío (sin filas) para pruebas rápidas en el navegador
+// GET: genera un PDF vacío (sin filas) para pruebas rápidas en el navegador
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
-    const pdfBuffer = await buildPdf([], url.origin);
+    const pdfU8 = await buildPdf([], url.origin);
+    const arrayBuffer = pdfU8.buffer as ArrayBuffer;
 
-    return new NextResponse(pdfBuffer as any, {
+    return new NextResponse(arrayBuffer as any, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
