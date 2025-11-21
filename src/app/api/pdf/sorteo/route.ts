@@ -11,10 +11,6 @@ export const revalidate = 0;
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
-/**
- * Devuelve fecha/hora en Argentina (GMT-3) sin depender
- * del huso horario del servidor.
- */
 function nowAR(): string {
   const now = new Date();
   const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
@@ -102,7 +98,6 @@ async function buildPdf(
   // ---------- Logos ----------
   try {
     const base = url.origin || "http://localhost:3000";
-    // Asumimos que tenés logo y bandera en /public
     const logoDataUrl = await fetchAsDataURL(base, "/logo.png");
     const banderaDataUrl = await fetchAsDataURL(base, "/bandera.png");
 
@@ -182,8 +177,8 @@ async function buildPdf(
 
   const fontHeader = "Helvetica-Bold";
   const fontBody = "Helvetica";
-  const sizeHeader = 13; // más grande
-  const sizeBody = 12;   // más grande
+  const sizeHeader = 11; // más grande
+  const sizeBody = 10; // más grande
   const padH = 10;
   const n = headers.length;
   const natural: number[] = Array(n).fill(0);
@@ -267,8 +262,12 @@ export async function GET(req: NextRequest) {
       url.searchParams.get("categoriaId") ?? url.searchParams.get("categoria");
     const sorteoId = url.searchParams.get("sorteoId");
 
+    // nombre de categoría opcional por query (desde el front)
+    const categoriaNombreQuery =
+      url.searchParams.get("categoriaNombre") ?? undefined;
+
     if (!sedeId || !categoriaId) {
-      const pdfU8 = await buildPdf([], url, undefined);
+      const pdfU8 = await buildPdf([], url, categoriaNombreQuery);
       return new NextResponse(pdfU8.buffer as ArrayBuffer, {
         status: 200,
         headers: {
@@ -297,20 +296,22 @@ export async function GET(req: NextRequest) {
     }
 
     // Nombre de la categoría para el título
-    let categoriaNombre: string | undefined = undefined;
-    try {
-      const { data: categoriaRow, error: catErr } = await supa
-        .from("categorias")
-        .select("id, nombre")
-        .eq("id", categoriaId)
-        .maybeSingle();
-      if (catErr) {
-        console.warn("Error leyendo categoría:", catErr.message);
-      } else {
-        categoriaNombre = (categoriaRow?.nombre as string) ?? undefined;
+    let categoriaNombre: string | undefined = categoriaNombreQuery;
+    if (!categoriaNombre) {
+      try {
+        const { data: categoriaRow, error: catErr } = await supa
+          .from(tables.categorias)
+          .select("id, nombre")
+          .eq("id", categoriaId)
+          .maybeSingle();
+        if (catErr) {
+          console.warn("Error leyendo categoría:", catErr.message);
+        } else {
+          categoriaNombre = (categoriaRow?.nombre as string) ?? undefined;
+        }
+      } catch (e) {
+        console.warn("Excepción leyendo categoría:", e);
       }
-    } catch (e) {
-      console.warn("Excepción leyendo categoría:", e);
     }
 
     if (!selSorteoId) {
