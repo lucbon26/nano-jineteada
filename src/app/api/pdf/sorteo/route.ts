@@ -6,6 +6,8 @@ import banderaUrl from "../../../../media/bandera.png";
 
 export const dynamic = "force-dynamic";
 export const runtime = "edge";
+export const fetchCache = "force-no-store";
+export const revalidate = 0;
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 function nowAR() {
