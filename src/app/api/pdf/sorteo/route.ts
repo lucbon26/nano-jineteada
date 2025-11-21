@@ -4,8 +4,8 @@ import { supaAnon, tables } from "../../../../lib/supa";
 import logoUrl from "../../../../media/logo.png";
 import banderaUrl from "../../../../media/bandera.png";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const runtime = "edge";
 export const fetchCache = "force-no-store";
 export const revalidate = 0;
 
