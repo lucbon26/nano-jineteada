@@ -96,7 +96,7 @@ async function buildPdf(
       }
       resolve(out);
     });
-    doc.on("error", (err) => reject(err));
+    doc.on("error", (err: any) => reject(err));
   });
 
   // ---------- Logos ----------
