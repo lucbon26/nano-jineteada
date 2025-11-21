@@ -311,13 +311,13 @@ export async function GET(req: NextRequest) {
 
     if (!selSorteoId) {
       const pdfU8 = await buildPdf([], url, categoriaNombre);
-      return new NextResponse(pdfU8, {
-        status: 200,
-        headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": "inline; filename=sorteo.pdf",
-        },
-      });
+return new NextResponse(pdfU8.buffer as ArrayBuffer, {
+  status: 200,
+  headers: {
+    "Content-Type": "application/pdf",
+    "Content-Disposition": "inline; filename=sorteo.pdf",
+  },
+});
     }
 
     // Emparejamientos del sorteo
