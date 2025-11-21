@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { ok, fail, readBody } from "@/lib/safe-json";
+import { ok, fail, readBody } from "../../../../lib/safe-json";
 
 export const runtime = "nodejs";
 
