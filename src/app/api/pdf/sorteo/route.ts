@@ -251,6 +251,9 @@ export async function POST(req: NextRequest) {
         });
       }
     } catch {}
+
+    // Generar el PDF → esto devuelve un Uint8Array
+const pdfU8 = await buildPdf(rows, url);
     // Convertir Uint8Array a ArrayBuffer tradicional
 const pdfBuffer = pdfU8.buffer.slice(pdfU8.byteOffset, pdfU8.byteOffset + pdfU8.byteLength);
 
