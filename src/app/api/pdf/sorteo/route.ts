@@ -1,202 +1,271 @@
 import { NextRequest, NextResponse } from "next/server";
-// Usamos el bundle standalone de pdfkit (sin tipos TS)
 import PDFDocument from "pdfkit/js/pdfkit.standalone.js";
-import { supaAnon, tables } from "../../../../lib/supa";
+import { supaAnon, tables } from "@/lib/supa";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 export const revalidate = 0;
 
-/**
- * Descarga una imagen desde /public usando fetch y la devuelve como data URL.
- * Si falla, devuelve null (no rompemos el PDF).
- */
-async function loadImageDataURL(origin: string, publicPath: string): Promise<string | null> {
-  try {
-    const url = new URL(publicPath, origin).toString();
-    const res = await fetch(url);
-    if (!res.ok) return null;
+// ================== Helpers de fecha ==================
 
-    const arrayBuffer = await res.arrayBuffer();
-    const contentType = res.headers.get("content-type") || "image/png";
-    const base64 = Buffer.from(arrayBuffer).toString("base64");
-    return `data:${contentType};base64,${base64}`;
-  } catch (e) {
-    console.error("Error cargando imagen para PDF:", e);
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/**
+ * Devuelve fecha/hora en Argentina (GMT-3) sin depender
+ * del huso horario del servidor.
+ */
+function nowAR(): string {
+  const now = new Date();
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
+  const ar = new Date(utcMs - 3 * 60 * 60_000); // UTC-3
+
+  const dd = pad2(ar.getDate());
+  const mm = pad2(ar.getMonth() + 1);
+  const yyyy = ar.getFullYear();
+  const hh = pad2(ar.getHours());
+  const nn = pad2(ar.getMinutes());
+
+  return `${dd}/${mm}/${yyyy} , ${hh}:${nn} GMT-3`;
+}
+
+// ================== Helpers de imágenes ==================
+
+function toBase64(u8: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+  // @ts-ignore
+  return btoa(bin);
+}
+
+async function fetchAsDataURL(
+  base: string,
+  urlOrPath: string,
+  mime = "image/png",
+): Promise<string | null> {
+  const abs = urlOrPath.startsWith("http") ? urlOrPath : `${base}${urlOrPath}`;
+  try {
+    const r = await fetch(abs);
+    if (!r.ok) return null;
+    const ab = await r.arrayBuffer();
+    return `data:${mime};base64,${toBase64(new Uint8Array(ab))}`;
+  } catch {
     return null;
   }
 }
 
-/**
- * Construye el PDF en memoria y devuelve un Uint8Array.
- * `rows` debe ser un array de objetos con campos:
- *  - "#"
- *  - palenque
- *  - jinete
- *  - localidad
- *  - caballo
- *  - tropilla
- *  - puntos
- *  - obs
- */
-async function buildPdf(rows: any[], origin: string, categoriaTexto?: string): Promise<Uint8Array> {
-  const doc = new PDFDocument({ size: "A4", layout: "landscape", margin: 36 });
+// ================== Tipos internos ==================
+
+type RowIn = {
+  orden?: number | string;
+  palenque?: string;
+  jinete?: string;
+  localidad?: string;
+  caballo?: string;
+  tropilla?: string;
+  puntos?: string;
+  observaciones?: string;
+
+  jinete_id?: string | number;
+};
+
+// ================== Armado del PDF ==================
+
+async function buildPdf(
+  rowsIn: RowIn[],
+  url: URL,
+  categoriaNombre?: string,
+): Promise<Uint8Array> {
+  const doc = new PDFDocument({
+    size: "A4",
+    layout: "landscape",
+    margin: 36,
+  });
 
   const chunks: Uint8Array[] = [];
-  const done = new Promise<Uint8Array>((resolve, reject) => {
-    doc.on("data", (c: Uint8Array) => chunks.push(c));
+  doc.on("data", (c: any) => chunks.push(c));
+  const done: Promise<Uint8Array> = new Promise((resolve, reject) => {
     doc.on("end", () => {
-      const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
-      const merged = new Uint8Array(totalLength);
-      let offset = 0;
+      let total = 0;
+      for (const c of chunks) total += c.length;
+      const out = new Uint8Array(total);
+      let off = 0;
       for (const c of chunks) {
-        merged.set(c, offset);
-        offset += c.length;
+        out.set(c, off);
+        off += c.length;
       }
-      resolve(merged);
+      resolve(out);
     });
-    doc.on("error", (err: unknown) => reject(err));
+    doc.on("error", (err) => reject(err));
   });
 
-  // === ENCABEZADO ===
-  const title1 = "Campeonato Rionegrino de Jineteada";
-  const title2 = "Sergio Herrera";
+  // ---------- Logos ----------
+  try {
+    const base = url.origin || "http://localhost:3000";
+    // Asumimos que tenés logo y bandera en /public
+    const logoDataUrl = await fetchAsDataURL(base, "/logo.png");
+    const banderaDataUrl = await fetchAsDataURL(base, "/bandera.png");
 
-  doc.fontSize(22).font("Helvetica-Bold").text(title1, { align: "center" });
-  doc.moveDown(0.3);
-  doc.fontSize(20).font("Helvetica-Bold").text(title2, { align: "center" });
+    const y = doc.y;
+    const h = 28;
+    if (logoDataUrl) {
+      doc.image(logoDataUrl, doc.page.margins.left, y, { height: h });
+    }
+    if (banderaDataUrl) {
+      const xRight = doc.page.width - doc.page.margins.right - 60;
+      doc.image(banderaDataUrl, xRight, y, { height: h });
+    }
+    doc.moveDown(0.2);
+  } catch {
+    // si falla el logo, no rompemos el PDF
+  }
 
-  doc.moveDown(0.8);
-  const subtituloBase = "Clasificatorio rumbo a Jesús María 2026";
-  const subtitulo =
-    categoriaTexto && categoriaTexto.trim().length > 0
-      ? `${subtituloBase} - ${categoriaTexto}`
-      : subtituloBase;
-  doc.fontSize(14).font("Helvetica").text(subtitulo, { align: "center" });
+  // ---------- Encabezado ----------
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(26)
+    .text("Campeonato Rionegrino de Jineteada", { align: "center" });
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(26)
+    .text("Sergio Herrera", { align: "center" });
+  doc.moveDown(0.2);
+
+  const baseSub = "Clasificatorio rumbo a Jesús María 2026";
+  const sub =
+    categoriaNombre && categoriaNombre.trim().length > 0
+      ? `${baseSub} - ${categoriaNombre.trim()}`
+      : baseSub;
+
+  doc.font("Helvetica").fontSize(16).text(sub, { align: "center" });
 
   doc.moveDown(0.5);
-  const ahora = new Date();
-  // Forzamos zona horaria de Argentina (GMT-3)
-  const fechaStr = ahora.toLocaleString("es-AR", {
-    timeZone: "America/Argentina/Buenos_Aires",
-    hour12: false,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
+  doc
+    .font("Helvetica")
+    .fontSize(10)
+    .text(`Generado: ${nowAR()}`, { align: "center" });
+  doc.moveDown(0.8);
+
+  // ---------- Tabla ----------
+  const headers = [
+    "#",
+    "Palenque",
+    "Jinete",
+    "Localidad",
+    "Caballo",
+    "Tropilla",
+    "Puntos",
+    "Observaciones",
+  ];
+  const rows: string[][] = (rowsIn || []).map((r, i) => [
+    String(r.orden ?? i + 1).padStart(2, "0"),
+    String(r.palenque ?? (i % 3) + 1),
+    String(r.jinete ?? "-"),
+    String(r.localidad ?? "-"),
+    String(r.caballo ?? "-"),
+    String(r.tropilla ?? "-"),
+    String(r.puntos ?? ""),
+    String(r.observaciones ?? ""),
+  ]);
+
+  if (!rows.length) {
+    doc.moveDown(1);
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(12)
+      .fillColor("#b00")
+      .text("No hay emparejamientos para imprimir.", { align: "center" });
+    doc.end();
+    return await done;
+  }
+
+  const fontHeader = "Helvetica-Bold";
+  const fontBody = "Helvetica";
+  const sizeHeader = 10;
+  const sizeBody = 8;
+  const padH = 8;
+  const n = headers.length;
+  const natural: number[] = Array(n).fill(0);
+
+  const measure = (t: any, head = false) => {
+    const s = t == null ? "" : String(t);
+    doc
+      .font(head ? fontHeader : fontBody)
+      .fontSize(head ? sizeHeader : sizeBody);
+    return doc.widthOfString(s) + padH;
+  };
+
+  for (let c = 0; c < n; c++)
+    natural[c] = Math.max(natural[c], measure(headers[c], true));
+  rows.forEach((cols) => {
+    for (let c = 0; c < n; c++)
+      natural[c] = Math.max(natural[c], measure(cols[c], false));
   });
-  const generadoStr = `${fechaStr} GMT-3`;
-  doc.fontSize(10).text(`Generado: ${generadoStr}`, { align: "center" });
 
-  doc.moveDown(1.2);
+  const MIN = {
+    num: 40,
+    palenque: 60,
+    localidad: 120,
+    puntos: 60,
+    obs: 120,
+  };
+  natural[0] = Math.max(natural[0], MIN.num);
+  natural[1] = Math.max(natural[1], MIN.palenque);
+  natural[3] = Math.max(natural[3], MIN.localidad);
+  natural[6] = Math.max(natural[6], MIN.puntos);
+  natural[7] = Math.max(natural[7], MIN.obs);
 
-  // === LOGOS DESDE /public/logo.png y /public/bandera.png (opcionales) ===
-  const logoDataUrl = await loadImageDataURL(origin, "/logo.png");
-  const banderaDataUrl = await loadImageDataURL(origin, "/bandera.png");
+  const totalNatural = natural.reduce((a, b) => a + b, 0);
+  const maxWidth =
+    doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const scale = totalNatural > maxWidth ? maxWidth / totalNatural : 1;
+  const widths = natural.map((w) => w * scale);
 
-  const headerY = doc.y;
-  const logoHeight = 28;
-
-  if (logoDataUrl) {
-    doc.image(logoDataUrl, doc.page.margins.left, headerY, { height: logoHeight });
-  }
-  if (banderaDataUrl) {
-    const imgWidth = 60;
-    const xRight = doc.page.width - doc.page.margins.right - imgWidth;
-    doc.image(banderaDataUrl, xRight, headerY, { width: imgWidth });
-  }
-
-  doc.moveDown(1.4);
-
-  // === TABLA ===
   const startX = doc.page.margins.left;
-  const startY = doc.y;
+  let y = doc.y;
 
-  const colDefs = [
-    { key: "#", label: "#", width: 30 },
-    { key: "palenque", label: "Palenque", width: 70 },
-    { key: "jinete", label: "Jinete", width: 160 },
-    { key: "localidad", label: "Localidad", width: 140 },
-    { key: "caballo", label: "Caballo", width: 140 },
-    { key: "tropilla", label: "Tropilla", width: 120 },
-    { key: "puntos", label: "Puntos", width: 60 },
-    { key: "obs", label: "Observaciones", width: 150 },
-  ] as const;
-
-  const rowHeight = 20;
-
-  function drawCell(x: number, y: number, w: number, h: number, text: string, bold = false) {
-    doc.rect(x, y, w, h).stroke();
-    doc.save();
-    doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(9);
-    const padding = 4;
-    doc.text(text, x + padding, y + padding, {
-      width: w - padding * 2,
-      height: h - padding * 2,
-      ellipsis: true,
-    });
-    doc.restore();
-  }
-
-  // Header de tabla
-  let cursorY = startY;
-  let cursorX = startX;
-  for (const col of colDefs) {
-    drawCell(cursorX, cursorY, col.width, rowHeight, col.label, true);
-    cursorX += col.width;
-  }
-  cursorY += rowHeight;
-
-  // Filas
-  for (const row of rows) {
-    cursorX = startX;
-    const pageBottom = doc.page.height - doc.page.margins.bottom - rowHeight;
-    if (cursorY > pageBottom) {
+  const drawRow = (cols: string[], isHeader = false) => {
+    const h = isHeader ? 20 : 16;
+    if (y + h > doc.page.height - doc.page.margins.bottom) {
       doc.addPage();
-      cursorY = doc.page.margins.top;
-
-      // Redibujar header en nueva página
-      let hx = startX;
-      for (const col of colDefs) {
-        drawCell(hx, cursorY, col.width, rowHeight, col.label, true);
-        hx += col.width;
-      }
-      cursorY += rowHeight;
+      y = doc.page.margins.top;
     }
-
-    for (const col of colDefs) {
-      const value = row[col.key] != null ? String(row[col.key]) : "";
-      drawCell(cursorX, cursorY, col.width, rowHeight, value);
-      cursorX += col.width;
+    let x = startX;
+    for (let c = 0; c < headers.length; c++) {
+      const w = widths[c];
+      doc.rect(x, y, w, h).stroke();
+      const txt = cols[c] ?? "";
+      doc
+        .font(isHeader ? fontHeader : fontBody)
+        .fontSize(isHeader ? sizeHeader : sizeBody)
+        .text(txt, x + 3, y + 3, { width: w - 6, ellipsis: true });
+      x += w;
     }
-    cursorY += rowHeight;
-  }
+    y += h;
+  };
+
+  drawRow(headers, true);
+  rows.forEach((r) => drawRow(r, false));
 
   doc.end();
   return await done;
 }
 
-/**
- * GET: usa Supabase en base a sedeId / categoriaId / categoriaNombre.
- *  - ?sedeId=...&categoriaId=...&categoriaNombre=BASTOS
- */
+// ================== GET: genera PDF desde la BD ==================
+
 export async function GET(req: NextRequest) {
   try {
     const url = req.nextUrl ?? new URL(req.url, "http://localhost:3000");
 
-    // Parámetros: sede, categoría, sorteo opcional y nombre de categoría para el título
-    const sedeId = url.searchParams.get("sedeId") ?? url.searchParams.get("sedeld");
-    const categoriaId = url.searchParams.get("categoriaId") ?? url.searchParams.get("categoria");
-    const sorteoIdParam = url.searchParams.get("sorteoId");
-    const categoriaNombre = url.searchParams.get("categoriaNombre") || undefined;
+    const sedeId =
+      url.searchParams.get("sedeId") ?? url.searchParams.get("sedeld");
+    const categoriaId =
+      url.searchParams.get("categoriaId") ?? url.searchParams.get("categoria");
+    const sorteoId = url.searchParams.get("sorteoId");
 
     if (!sedeId || !categoriaId) {
-      // No hay datos mínimos -> devolvemos PDF vacío pero válido
-      const pdfU8 = await buildPdf([], url.origin, categoriaNombre);
-      const arrayBuffer = pdfU8.buffer as ArrayBuffer;
-      return new NextResponse(arrayBuffer as any, {
+      const pdfU8 = await buildPdf([], url, undefined);
+      return new NextResponse(pdfU8, {
         status: 200,
         headers: {
           "Content-Type": "application/pdf",
@@ -207,12 +276,12 @@ export async function GET(req: NextRequest) {
 
     const supa = supaAnon();
 
-    // 1) Determinar sorteo a usar
+    // Último sorteo de esa sede/categoría (si no se pasa sorteoId)
     let selSorteoId: string | null = null;
-    if (sorteoIdParam && sorteoIdParam.trim()) {
-      selSorteoId = sorteoIdParam.trim();
+    if (sorteoId && sorteoId.trim()) {
+      selSorteoId = sorteoId.trim();
     } else {
-      const { data: last, error: lastErr } = await supa
+      const { data: last } = await supa
         .from(tables.sorteos)
         .select("id")
         .eq("sede_id", sedeId)
@@ -220,17 +289,29 @@ export async function GET(req: NextRequest) {
         .order("id", { ascending: false })
         .limit(1)
         .maybeSingle();
-
-      if (lastErr) {
-        console.error("Error leyendo último sorteo:", lastErr);
-      }
       selSorteoId = last?.id ?? null;
     }
 
+    // Nombre de la categoría para el título
+    let categoriaNombre: string | undefined = undefined;
+    try {
+      const { data: categoriaRow, error: catErr } = await supa
+        .from("categorias") // misma tabla que usa /admin/preparar
+        .select("id, nombre")
+        .eq("id", categoriaId)
+        .maybeSingle();
+      if (catErr) {
+        console.warn("Error leyendo categoría:", catErr.message);
+      } else {
+        categoriaNombre = (categoriaRow?.nombre as string) ?? undefined;
+      }
+    } catch (e) {
+      console.warn("Excepción leyendo categoría:", e);
+    }
+
     if (!selSorteoId) {
-      const pdfU8 = await buildPdf([], url.origin, categoriaNombre);
-      const arrayBuffer = pdfU8.buffer as ArrayBuffer;
-      return new NextResponse(arrayBuffer as any, {
+      const pdfU8 = await buildPdf([], url, categoriaNombre);
+      return new NextResponse(pdfU8, {
         status: 200,
         headers: {
           "Content-Type": "application/pdf",
@@ -239,7 +320,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // 2) Traer emparejamientos de ese sorteo
+    // Emparejamientos del sorteo
     const { data: emp, error: empErr } = await supa
       .from(tables.emparejamientos)
       .select("orden, jinete_id, caballo_nombre, tropilla")
@@ -247,68 +328,121 @@ export async function GET(req: NextRequest) {
       .order("orden", { ascending: true });
 
     if (empErr) {
-      console.error("Error Supabase emparejamientos:", empErr);
-      return NextResponse.json(
-        { error: empErr.message || "Error consultando emparejamientos" },
-        { status: 500 },
-      );
+      console.error("Error leyendo emparejamientos:", empErr);
     }
 
-    const empRows = emp || [];
-
-    // 3) Traer nombres y localidades de jinetes
-    const jineteIds = Array.from(
-      new Set(
-        empRows
-          .map((r: any) => r.jinete_id)
-          .filter((v) => v !== null && v !== undefined)
-          .map((v) => String(v)),
-      ),
+    const ids = Array.from(
+      new Set((emp || []).map((r: any) => r.jinete_id).filter(Boolean)),
     );
-
     const nombres = new Map<string, string>();
     const localidades = new Map<string, string>();
 
-    if (jineteIds.length > 0) {
+    if (ids.length) {
       const { data: js, error: jsErr } = await supa
         .from(tables.jinetes)
         .select("id, nombre, apellido, localidad")
-        .in("id", jineteIds);
+        .in("id", ids);
 
       if (jsErr) {
-        console.error("Error Supabase jinetes:", jsErr);
+        console.error("Error leyendo jinetes:", jsErr);
       } else {
         (js || []).forEach((j: any) => {
-          const idStr = String(j.id);
-          const nombreCompleto =
-            [j.nombre, j.apellido].filter(Boolean).join(" ").trim() || idStr;
-          nombres.set(idStr, nombreCompleto);
-          if (j.localidad) {
-            localidades.set(idStr, String(j.localidad));
-          }
+          const nm =
+            [j.nombre, j.apellido].filter(Boolean).join(" ").trim() ||
+            String(j.id);
+          nombres.set(String(j.id), nm);
+          if (j.localidad) localidades.set(String(j.id), String(j.localidad));
         });
       }
     }
 
-    // 4) Armar filas para el PDF (formato que espera buildPdf)
-    const rows = empRows.map((r: any, idx: number) => {
-      const idStr = r.jinete_id != null ? String(r.jinete_id) : "";
-      return {
-        "#": idx + 1,
-        palenque: String((idx % 3) + 1),
-        jinete: nombres.get(idStr) ?? idStr,
-        localidad: localidades.get(idStr) ?? "",
-        caballo: r.caballo_nombre ?? "",
-        tropilla: r.tropilla ?? "",
-        puntos: "",
-        obs: "",
-      };
+    const rows: RowIn[] = (emp || []).map((r: any, i: number) => ({
+      orden: r.orden ?? i + 1,
+      palenque: String((i % 3) + 1),
+      jinete: nombres.get(String(r.jinete_id)) || String(r.jinete_id || "-"),
+      localidad: localidades.get(String(r.jinete_id)) || "-",
+      caballo: r.caballo_nombre || "-",
+      tropilla: r.tropilla || "-",
+      puntos: "",
+      observaciones: "",
+      jinete_id: r.jinete_id,
+    }));
+
+    const pdfU8 = await buildPdf(rows, url, categoriaNombre);
+    return new NextResponse(pdfU8, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": "inline; filename=sorteo.pdf",
+      },
     });
+  } catch (e: any) {
+    console.error(e);
+    return NextResponse.json(
+      { error: e?.message || "Error generando PDF" },
+      { status: 500 },
+    );
+  }
+}
 
-    const pdfU8 = await buildPdf(rows, url.origin, categoriaNombre);
-    const arrayBuffer = pdfU8.buffer as ArrayBuffer;
+// ================== POST: imprime filas enviadas manualmente ==================
 
-    return new NextResponse(arrayBuffer as any, {
+export async function POST(req: NextRequest) {
+  try {
+    const url = req.nextUrl ?? new URL(req.url, "http://localhost:3000");
+    const ct = req.headers.get("content-type") || "";
+    let json: any = null;
+
+    if (ct.includes("application/json")) {
+      json = await req.json();
+    } else if (ct.includes("application/x-www-form-urlencoded")) {
+      const body = await req.text();
+      const usp = new URLSearchParams(body);
+      const raw = usp.get("rows") || "[]";
+      json = { rows: JSON.parse(raw) };
+    } else {
+      json = await req.json().catch(() => ({}));
+    }
+
+    const rows: RowIn[] = Array.isArray(json?.rows) ? json.rows : [];
+    if (!rows.length)
+      return NextResponse.json(
+        { error: "No llegaron filas para imprimir" },
+        { status: 400 },
+      );
+
+    const categoriaNombre =
+      typeof json?.categoriaNombre === "string"
+        ? json.categoriaNombre
+        : undefined;
+
+    // Opcional: completar localidad de jinetes por id
+    try {
+      const ids = Array.from(
+        new Set(rows.map((r) => r.jinete_id).filter(Boolean).map(String)),
+      );
+      if (ids.length) {
+        const supa = supaAnon();
+        const { data: js } = await supa
+          .from(tables.jinetes)
+          .select("id, localidad")
+          .in("id", ids);
+        const locMap = new Map(
+          (js || []).map((j: any) => [String(j.id), j.localidad || "-"]),
+        );
+        rows.forEach((r) => {
+          if (!r.localidad || r.localidad === "-") {
+            const k = r.jinete_id != null ? String(r.jinete_id) : null;
+            if (k && locMap.has(k)) r.localidad = locMap.get(k) as string;
+          }
+        });
+      }
+    } catch {
+      // si falla el enrich, seguimos con lo que hay
+    }
+
+    const pdfU8 = await buildPdf(rows, url, categoriaNombre);
+    return new NextResponse(pdfU8, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
