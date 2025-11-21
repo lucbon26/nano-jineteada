@@ -221,7 +221,7 @@ async function buildPdf(
   let y = doc.y;
 
   const drawRow = (cols: string[], isHeader = false) => {
-    const h = isHeader ? 24 : 21; // filas más altas
+    const h = isHeader ? 28 : 24; // filas más altas
     if (y + h > doc.page.height - doc.page.margins.bottom) {
       doc.addPage();
       y = doc.page.margins.top;
@@ -404,7 +404,8 @@ export async function POST(req: NextRequest) {
       const body = await req.text();
       const usp = new URLSearchParams(body);
       const raw = usp.get("rows") || "[]";
-      json = { rows: JSON.parse(raw) };
+      const cat = usp.get("categoriaNombre") || undefined;
+      json = { rows: JSON.parse(raw), categoriaNombre: cat };
     } else {
       json = await req.json().catch(() => ({}));
     }
