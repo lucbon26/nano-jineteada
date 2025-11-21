@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import PDFDocument from "pdfkit/js/pdfkit.standalone.js";
-import { supaAnon, tables } from "../../../../lib/supa";
 import path from "path";
 import { readFile } from "fs/promises";
 
@@ -9,431 +8,193 @@ export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 export const revalidate = 0;
 
-async function loadImageBuffer(
-  staticPath: string | { src: string },
-  baseUrl: string | URL
-) {
-  const path =
-    typeof staticPath === "string" ? staticPath : staticPath.src;
-
-  const base =
-    typeof baseUrl === "string" ? baseUrl : baseUrl.toString();
-
-  const imageUrl = new URL(path, base).toString();
-
-  const res = await fetch(imageUrl);
-  if (!res.ok) {
-    throw new Error("No pude cargar " + path);
-  }
-
-  const arr = await res.arrayBuffer();
-  return Buffer.from(arr);
-}
-
-const pad2 = (n: number) => String(n).padStart(2, "0");
-function nowAR() {
-  const d = new Date();
-  const dd = pad2(d.getDate()), mm = pad2(d.getMonth() + 1), yyyy = d.getFullYear();
-  const hh = pad2(d.getHours()), nn = pad2(d.getMinutes());
-  const tz = -d.getTimezoneOffset() / 60;
-  return `${dd}/${mm}/${yyyy} , ${hh}:${nn} GMT${tz >= 0 ? "+" : ""}${tz}`;
-}
-function toBase64(u8: Uint8Array): string {
-  let bin = ""; for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
-  // @ts-ignore
-  return btoa(bin);
-}
-async function fetchAsDataURL(base: string, urlOrPath: string, mime = "image/png"): Promise<string | null> {
-  const abs = urlOrPath.startsWith("http") ? urlOrPath : `${base}${urlOrPath}`;
+// Intenta leer una imagen desde /public/<relativePath>.
+// Si no existe, devuelve null (para no romper el PDF).
+async function loadImageFromPublic(relativePath: string): Promise<Buffer | null> {
   try {
-    const r = await fetch(abs); if (!r.ok) return null;
-    const ab = await r.arrayBuffer();
-    return `data:${mime};base64,${toBase64(new Uint8Array(ab))}`;
-  } catch { return null; }
+    const filePath = path.join(process.cwd(), "public", relativePath.replace(/^\/+/, ""));
+    const data = await readFile(filePath);
+    return data;
+  } catch {
+    return null;
+  }
 }
 
-type RowIn = {
-  orden?: number | string;
-  palenque?: string;
-  jinete?: string;
-  localidad?: string;
-  caballo?: string;
-  tropilla?: string;
-  puntos?: string;
-  observaciones?: string;
-
-  jinete_id?: string | number;
-};
-
-async function buildPdf(rows: any[], url: URL) {
+// Crea el PDF en memoria y devuelve un Buffer
+async function buildPdf(rows: any[], origin: string): Promise<Buffer> {
   const doc = new PDFDocument({ size: "A4", layout: "landscape", margin: 36 });
 
-  // Cargar imágenes desde /public/pdf/
-  const logoBuffer = await readFile(
-    path.join(process.cwd(), "public", "pdf", "logo.png")
-  );
-  const banderaBuffer = await readFile(
-    path.join(process.cwd(), "public", "pdf", "bandera.png")
-  );
-
   const chunks: Uint8Array[] = [];
-  // @ts-ignore
-  doc.on("data", (c: Uint8Array) => chunks.push(c));
-  doc.on("end", () => { /* ... tu código de armado de Uint8Array ... */ });
+  const done = new Promise<Buffer>((resolve, reject) => {
+    doc.on("data", (c: Uint8Array) => chunks.push(c));
+    doc.on("end", () => {
+      const buf = Buffer.concat(chunks.map((c) => Buffer.from(c)));
+      resolve(buf);
+    });
+    doc.on("error", (err) => reject(err));
+  });
 
-  // === Logos en el PDF ===
-  const y = doc.y;
-  const h = 28;
-  doc.image(logoBuffer, doc.page.margins.left, y, { height: h });
+  // ==== ENCABEZADO ====
+  const title1 = "Campeonato Rionegrino de Jineteada";
+  const title2 = "Sergio Herrera";
 
-  const xRight = doc.page.width - doc.page.margins.right - 60;
-  doc.image(banderaBuffer, xRight, y, { height: h });
-  doc.moveDown(0.2);
+  doc.fontSize(22).font("Helvetica-Bold").text(title1, { align: "center" });
+  doc.moveDown(0.3);
+  doc.fontSize(20).font("Helvetica-Bold").text(title2, { align: "center" });
 
-  // ... resto de tu lógica original (títulos, tabla, etc.) ...
-}
-const supa = supaAnon();
-
-// === Leer la categoría seleccionada, tal como el selector de /admin/preparar ===
-/*const { data: categoriaRow, error: catErr } = await supa
-  .from("categorias") // misma tabla que usa el selector
-  .select("id, nombre")
-  .eq("id", categoriaId)
-  .maybeSingle();
-
-if (catErr) console.warn("Error leyendo categoría:", catErr.message);
-
-const categoriaNombre = categoriaRow?.nombre ?? "";
-const { data: categoriaRow, error: catErr } = await supa
-  .from("categorias") // <- misma tabla que usa el selector
-  .select("id, nombre")
-  .eq("id", categoriaId)
-  .maybeSingle();
-
-if (catErr) console.warn("Error leyendo categoría:", catErr.message);
-
-const categoriaNombre = categoriaRow?.nombre ?? "";*/
-  // Encabezado
-
-
-
-  doc.font("Helvetica-Bold").fontSize(26).text("Campeonato Rionegrino de Jineteada", { align: "center" });
-  doc.moveDown(0.2);
-  doc.font("Helvetica-Bold").fontSize(26).text("Sergio Herrera", { align: "center" });
-  doc.moveDown(0.2);
- //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
- //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-  //doc.font("Helvetica").fontSize(16).text("Clasificatorio rumbo a Jesús María 2026 - GURUPA", { align: "center" });
-  //doc.font("Helvetica").fontSize(16).text("Clasificatorio rumbo a Jesús María 2026 - CLINA", { align: "center" });
-  //doc.font("Helvetica").fontSize(16).text("Clasificatorio rumbo a Jesús María 2026 - BASTOS", { align: "center" });
-  doc.font("Helvetica").fontSize(16).text("Clasificatorio rumbo a Jesús María 2026", { align: "center" });
-
-
- //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
- //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-  
-  //doc.font("Helvetica").fontSize(26).text("Campeonato Rionegrino de Jineteada", { align: "center" });
-  //doc.moveDown(0.2);
- // const sub = "Clasificatorio rumbo a Jesús María 2026" + (categoriaNombre ? ` – ${categoriaNombre}` : "");
- // doc.font("Helvetica").fontSize(14).text(sub, { align: "center" });
-  doc.moveDown(0.5);
-  doc.font("Helvetica").fontSize(10).text(`Generado: ${nowAR()}`, { align: "center" });
   doc.moveDown(0.8);
+  const subtitulo = "Clasificatorio rumbo a Jesús María 2026 - BASTOS";
+  doc.fontSize(14).font("Helvetica").text(subtitulo, { align: "center" });
 
-  const headers = ["#", "Palenque", "Jinete", "Localidad", "Caballo", "Tropilla", "Puntos", "Observaciones"];
-  const rows: string[][] = (rowsIn || []).map((r, i) => [
-    String(r.orden ?? i + 1).padStart(2, "0"),
-    String(r.palenque ?? ((i % 3) + 1)),
-    String(r.jinete ?? "-"),
-    String(r.localidad ?? "-"),
-    String(r.caballo ?? "-"),
-    String(r.tropilla ?? "-"),
-    String(r.puntos ?? ""),
-    String(r.observaciones ?? ""),
-  ]);
+  doc.moveDown(0.5);
+  const fechaStr = new Date().toLocaleString("en-GB", {
+    timeZone: "UTC",
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  doc.fontSize(10).text(`Generado: ${fechaStr} GMT+0`, { align: "center" });
 
-  if (!rows.length) {
-    doc.moveDown(1);
-    doc.font("Helvetica-Bold").fontSize(12).fillColor("#b00")
-      .text("No hay emparejamientos para imprimir.", { align: "center" });
-    doc.end();
-    return await done;
+  doc.moveDown(1.2);
+
+  // ==== LOGOS (opcionales, si existen en /public) ====
+  const logo = await loadImageFromPublic("logo.png");
+  const bandera = await loadImageFromPublic("bandera.png");
+
+  const headerY = doc.y;
+  const logoH = 28;
+
+  if (logo) {
+    doc.image(logo, doc.page.margins.left, headerY, { height: logoH });
+  }
+  if (bandera) {
+    const xRight = doc.page.width - doc.page.margins.right - 60;
+    doc.image(bandera, xRight, headerY, { height: logoH });
   }
 
-  // Cálculo de anchos y render de tabla
-  const fontBody = "Helvetica", fontHeader = "Helvetica-Bold";
-  const sizeHeader = 10, sizeBody = 8, padH = 8;
-  const n = headers.length;
-  const natural: number[] = Array(n).fill(0);
-  const measure = (t: any, head = false) => {
-    const s = t == null ? "" : String(t);
-    doc.font(head ? fontHeader : fontBody).fontSize(head ? sizeHeader : sizeBody);
-    return doc.widthOfString(s) + padH;
-  };
-  for (let c = 0; c < n; c++) natural[c] = Math.max(natural[c], measure(headers[c], true));
-  rows.forEach(cols => { for (let c = 0; c < n; c++) natural[c] = Math.max(natural[c], measure(cols[c], false)); });
-  const MIN = { num: 40, palenque: 60, localidad: 120, puntos: 60, obs: 120 };
-  natural[0] = Math.max(natural[0], MIN.num);
-  natural[1] = Math.max(natural[1], MIN.palenque);
-  natural[3] = Math.max(natural[3], MIN.localidad);
-  natural[6] = Math.max(natural[6], MIN.puntos);
-  natural[7] = Math.max(natural[7], MIN.obs);
+  doc.moveDown(1.8);
 
-  const contentW = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  const sum = natural.reduce((a, b) => a + b, 0);
-  let widths = natural.map(w => Math.max(28, w * (contentW / sum)));
-  const diff = contentW - widths.reduce((a, b) => a + b, 0);
-  if (Math.abs(diff) > 0.1) widths[widths.length - 1] += diff;
+  // ==== TABLA ====
+  const startX = doc.page.margins.left;
+  const startY = doc.y;
 
-  const startX = doc.x;
-  let currentY = doc.y;
-  const COLOR = { border: "#444", headerBg: "#f0f0f0", zebra: "#fafafa", text: "#000" };
+  const colDefs = [
+    { key: "#", label: "#", width: 30 },
+    { key: "palenque", label: "Palenque", width: 70 },
+    { key: "jinete", label: "Jinete", width: 160 },
+    { key: "localidad", label: "Localidad", width: 140 },
+    { key: "caballo", label: "Caballo", width: 140 },
+    { key: "tropilla", label: "Tropilla", width: 120 },
+    { key: "puntos", label: "Puntos", width: 60 },
+    { key: "obs", label: "Observaciones", width: 150 },
+  ] as const;
 
-  const drawHeader = () => {
-    const rowH = 24;
-    let x = startX;
-    for (let i = 0; i < n; i++) {
-      doc.save().rect(x, currentY, widths[i], rowH).fill(COLOR.headerBg).restore();
-      doc.lineWidth(0.6).strokeColor(COLOR.border).rect(x, currentY, widths[i], rowH).stroke();
-      const align = (i === 0 || i === 1 || i === 6) ? "center" : "left";
-      const pad = align === "left" ? 8 : 4;
-      doc.fillColor(COLOR.text).font(fontHeader).fontSize(sizeHeader)
-         .text(headers[i], x + pad, currentY + 6, { width: widths[i] - pad * 2, align });
-      x += widths[i];
+  const rowHeight = 20;
+
+  function drawCell(x: number, y: number, w: number, h: number, text: string, bold = false) {
+    doc.rect(x, y, w, h).stroke();
+    doc.save();
+    doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(9);
+    const padding = 4;
+    doc.text(text, x + padding, y + padding, {
+      width: w - padding * 2,
+      height: h - padding * 2,
+      ellipsis: true,
+    });
+    doc.restore();
+  }
+
+  // Header
+  let x = startX;
+  let y = startY;
+  colDefs.forEach((col) => {
+    drawCell(x, y, col.width, rowHeight, col.label, true);
+    x += col.width;
+  });
+
+  // Body
+  const safeRows = Array.isArray(rows) ? rows : [];
+  let index = 1;
+  for (const r of safeRows) {
+    y += rowHeight;
+    x = startX;
+
+    const get = (k: string): string => {
+      if (k === "#") return index.toString().padStart(2, "0");
+      const v =
+        (r && (r as any)[k]) ??
+        (r && (r as any)[k.toLowerCase()]) ??
+        (r && (r as any)[k.toUpperCase()]);
+      return v == null ? "" : String(v);
+    };
+
+    colDefs.forEach((col) => {
+      drawCell(x, y, col.width, rowHeight, get(col.key as string));
+      x += col.width;
+    });
+
+    index++;
+    // Nueva página si nos pasamos
+    if (y + rowHeight * 2 > doc.page.height - doc.page.margins.bottom) {
+      doc.addPage();
+      y = doc.page.margins.top;
+      x = startX;
+      colDefs.forEach((col) => {
+        drawCell(x, y, col.width, rowHeight, col.label, true);
+        x += col.width;
+      });
     }
-    currentY += rowH;
-  };
-
-  const drawRow = (values: any[], idx: number) => {
-    const rowH = 22;
-    let x = startX;
-    if (idx % 2 === 1) {
-      doc.save().rect(x, currentY, widths.reduce((a, b) => a + b, 0), rowH).fill(COLOR.zebra).restore();
-    }
-    for (let i = 0; i < n; i++) {
-      doc.lineWidth(0.5).strokeColor(COLOR.border).rect(x, currentY, widths[i], rowH).stroke();
-      const align = (i === 0 || i === 1 || i === 6) ? "center" : "left";
-      const pad = align === "left" ? 8 : 4;
-      doc.fillColor(COLOR.text).font(fontBody).fontSize(sizeBody)
-         .text(String(values[i] ?? ""), x + pad, currentY + 6, { width: widths[i] - pad * 2, align });
-      x += widths[i];
-    }
-    currentY += rowH;
-    const bottomLimit = doc.page.height - doc.page.margins.bottom - 40;
-    if (currentY > bottomLimit) {
-      doc.addPage({ size: "A4", layout: "landscape", margin: 36 });
-      currentY = doc.y;
-      drawHeader();
-    }
-  };
-
-  drawHeader();
-  rows.forEach((r, i) => drawRow(r, i));
+  }
 
   doc.end();
   return await done;
 }
 
-// POST: usa las filas de la UI (sin tocar DB)
+// POST: usa las filas que vienen desde la UI
 export async function POST(req: NextRequest) {
   try {
-    const url = req.nextUrl ?? new URL(req.url, "http://localhost:3000");
-    const ct = req.headers.get("content-type") || "";
-    let json: any = null;
-    if (ct.includes("application/json")) {
-      json = await req.json();
-    } else if (ct.includes("application/x-www-form-urlencoded")) {
-      const body = await req.text();
-      const usp = new URLSearchParams(body);
-      const raw = usp.get("rows") || "[]";
-      json = { rows: JSON.parse(raw) };
-    } else {
-      json = await req.json().catch(() => ({}));
-    }
-    const rows: RowIn[] = Array.isArray(json?.rows) ? json.rows : [];
-    if (!rows.length)
- return NextResponse.json({ error: "No llegaron filas para imprimir" }, { status: 400 });
+    const body = await req.json().catch(() => ({}));
+    const rows = (body && body.rows) || body || [];
+    const url = new URL(req.url);
 
-    /*ENRICH_LOCALIDAD*/
-    try {
-      const ids = Array.from(new Set(rows.map(r => r.jinete_id).filter(Boolean).map(String)));
-      if (ids.length) {
-        const supa = supaAnon();
-        const { data: js } = await supa
-          .from(tables.jinetes)
-          .select("id, localidad")
-          .in("id", ids);
-        const locMap = new Map((js || []).map((j:any)=>[String(j.id), j.localidad || "-"]));
-        rows.forEach(r => {
-          if (!r.localidad || r.localidad === "-") {
-            const k = r.jinete_id != null ? String(r.jinete_id) : null;
-            if (k && locMap.has(k)) r.localidad = locMap.get(k) as string;
-          }
-        });
-      }
-    } catch {}
-
-   // Generar el PDF → devuelve un Uint8Array
-const pdfU8 = await buildPdf(rows, url);
-
-// Convertir a Buffer de Node (eliminando SharedArrayBuffer)
-const nodeBuffer = Buffer.from(pdfU8);
-
-// Convertir Buffer → ArrayBuffer, que sí acepta NextResponse en Edge
-const arrayBuffer = nodeBuffer.buffer.slice(
-  nodeBuffer.byteOffset,
-  nodeBuffer.byteOffset + nodeBuffer.byteLength
-);
-
-return new NextResponse(arrayBuffer, {
-  status: 200,
-  headers: {
-    "Content-Type": "application/pdf",
-    "Content-Disposition": "inline; filename=sorteo.pdf"
-  }
-});
+    const pdfBuffer = await buildPdf(rows, url.origin);
+    return new NextResponse(pdfBuffer as any, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": "inline; filename=sorteo.pdf",
+      },
+    });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Error generando PDF" }, { status: 500 });
+    console.error(e);
+    return NextResponse.json(
+      { error: e?.message || "Error generando PDF" },
+      { status: 500 },
+    );
   }
 }
 
-// GET: fallback (tu comportamiento previo con DB)
+// GET: por ahora genera un PDF vacío (sin filas) para pruebas rápidas en el navegador
 export async function GET(req: NextRequest) {
   try {
-    const url = req.nextUrl ?? new URL(req.url, "http://localhost:3000");
-    const sedeId = url.searchParams.get("sedeId") ?? url.searchParams.get("sedeld");
-    const categoriaId = url.searchParams.get("categoriaId") ?? url.searchParams.get("categoria");
-    const sorteoId = url.searchParams.get("sorteoId");
+    const url = new URL(req.url);
+    const pdfBuffer = await buildPdf([], url.origin);
 
-   if (!sedeId || !categoriaId) {
-  const pdfU8 = await buildPdf([], url);
-
-  // Convertir Uint8Array a Buffer normal
-  const nodeBuffer = Buffer.from(pdfU8);
-
-  // Convertir Buffer → ArrayBuffer (Edge friendly)
-  const arrayBuffer = nodeBuffer.buffer.slice(
-    nodeBuffer.byteOffset,
-    nodeBuffer.byteOffset + nodeBuffer.byteLength
-  );
-
-  return new NextResponse(arrayBuffer, {
-    status: 200,
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": "inline; filename=sorteo.pdf"
-    }
-  });
-}
-
-    const supa = supaAnon();
-    let selSorteoId: string | null = null;
-    if (sorteoId && sorteoId.trim()) selSorteoId = sorteoId.trim();
-    else {
-      const { data: last } = await supa
-        .from(tables.sorteos)
-        .select("id")
-        .eq("sede_id", sedeId)
-        .eq("categoria_id", categoriaId)
-        .order("id", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      selSorteoId = last?.id ?? null;
-    }
-
-    if (!selSorteoId) {
-  const pdfU8 = await buildPdf([], url);
-
-  // Convertir Uint8Array → Buffer normal
-  const nodeBuffer = Buffer.from(pdfU8);
-
-  // Buffer → ArrayBuffer (Edge Runtime compatible)
-  const arrayBuffer = nodeBuffer.buffer.slice(
-    nodeBuffer.byteOffset,
-    nodeBuffer.byteOffset + nodeBuffer.byteLength
-  );
-
-  return new NextResponse(arrayBuffer, {
-    status: 200,
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": "inline; filename=sorteo.pdf"
-    }
-  });
-}
-
-    const { data: emp } = await supa
-      .from(tables.emparejamientos)
-      .select("orden, jinete_id, caballo_nombre, tropilla")
-      .eq("sorteo_id", selSorteoId)
-      .order("orden", { ascending: true });
-
-    const ids = Array.from(new Set((emp || []).map((r: any) => r.jinete_id).filter(Boolean)));
-    const nombres = new Map<string, string>();
-    const localidades = new Map<string, string>();
-    if (ids.length) {
-      const { data: js } = await supa
-        .from(tables.jinetes)
-        .select("id, nombre, apellido, localidad")
-        .in("id", ids);
-      (js || []).forEach((j: any) => {
-        const nm = [j.nombre, j.apellido].filter(Boolean).join(" ").trim() || String(j.id);
-        nombres.set(String(j.id), nm);
-        if (j.localidad) localidades.set(String(j.id), String(j.localidad));
-      });
-    }
-
-    const rows: RowIn[] = (emp || []).map((r: any, i: number) => ({
-      orden: r.orden ?? i + 1,
-      palenque: String((i % 3) + 1),
-      jinete: nombres.get(String(r.jinete_id)) || String(r.jinete_id || "-"),
-      localidad: localidades.get(String(r.jinete_id)) || "-",
-      caballo: r.caballo_nombre || "-",
-      tropilla: r.tropilla || "-",
-      puntos: "",
-      observaciones: "",
-    }));
-
-    /*ENRICH_LOCALIDAD*/
-    try {
-      const ids = Array.from(new Set(rows.map(r => r.jinete_id).filter(Boolean).map(String)));
-      if (ids.length) {
-        const supa = supaAnon();
-        const { data: js } = await supa
-          .from(tables.jinetes)
-          .select("id, localidad")
-          .in("id", ids);
-        const locMap = new Map((js || []).map((j:any)=>[String(j.id), j.localidad || "-"]));
-        rows.forEach(r => {
-          if (!r.localidad || r.localidad === "-") {
-            const k = r.jinete_id != null ? String(r.jinete_id) : null;
-            if (k && locMap.has(k)) r.localidad = locMap.get(k) as string;
-          }
-        });
-      }
-    } catch {}
-const pdfU8 = await buildPdf(rows, url);
-
-// pdfU8 es un Uint8Array → lo convertimos a Buffer y luego a ArrayBuffer para Edge
-const nodeBuffer = Buffer.from(pdfU8);
-
-const arrayBuffer = nodeBuffer.buffer.slice(
-  nodeBuffer.byteOffset,
-  nodeBuffer.byteOffset + nodeBuffer.byteLength
-);
-
-return new NextResponse(arrayBuffer, {
-  status: 200,
-  headers: {
-    "Content-Type": "application/pdf",
-    "Content-Disposition": "inline; filename=sorteo.pdf"
-  }
-});
-
-
+    return new NextResponse(pdfBuffer as any, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": "inline; filename=sorteo.pdf",
+      },
+    });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Error generando PDF" }, { status: 500 });
+    console.error(e);
+    return NextResponse.json(
+      { error: e?.message || "Error generando PDF" },
+      { status: 500 },
+    );
   }
 }
