@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import PDFDocument from "pdfkit/js/pdfkit.standalone.js";
-import { supaAnon, tables } from "../../..//lib/supa";
+import { supaAnon, tables } from "../../../lib/supa";
 import logoUrl from "../../../../media/logo.png";
 import banderaUrl from "../../../../media/bandera.png";
 
