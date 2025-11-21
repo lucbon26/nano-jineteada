@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-// @ts-ignore - usamos el bundle standalone de pdfkit (sin tipos TS)
+// Usamos el bundle standalone de pdfkit (sin tipos TS)
 import PDFDocument from "pdfkit/js/pdfkit.standalone.js";
+import { supaAnon, tables } from "../../../../lib/supa";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,8 +29,17 @@ async function loadImageDataURL(origin: string, publicPath: string): Promise<str
 
 /**
  * Construye el PDF en memoria y devuelve un Uint8Array con el binario.
+ * Espera filas con las claves:
+ *  - "#": número correlativo
+ *  - palenque
+ *  - jinete
+ *  - localidad
+ *  - caballo
+ *  - tropilla
+ *  - puntos
+ *  - obs
  */
-async function buildPdf(rows: any[], origin: string): Promise<Uint8Array> {
+async function buildPdf(rows: any[], origin: string, categoriaTexto?: string): Promise<Uint8Array> {
   const doc = new PDFDocument({ size: "A4", layout: "landscape", margin: 36 });
 
   const chunks: Uint8Array[] = [];
@@ -57,12 +67,17 @@ async function buildPdf(rows: any[], origin: string): Promise<Uint8Array> {
   doc.fontSize(20).font("Helvetica-Bold").text(title2, { align: "center" });
 
   doc.moveDown(0.8);
-  const subtitulo = "Clasificatorio rumbo a Jesús María 2026 - BASTOS";
+  const subtituloBase = "Clasificatorio rumbo a Jesús María 2026";
+  const subtitulo =
+    categoriaTexto && categoriaTexto.trim().length > 0
+      ? `${subtituloBase} - ${categoriaTexto}`
+      : subtituloBase;
   doc.fontSize(14).font("Helvetica").text(subtitulo, { align: "center" });
 
   doc.moveDown(0.5);
-  const fechaStr = new Date().toLocaleString("en-GB", {
-    timeZone: "UTC",
+  const ahora = new Date();
+  // Usamos la hora local del servidor pero sin mencionar GMT para que no confunda
+  const fechaStr = ahora.toLocaleString("es-AR", {
     hour12: false,
     year: "numeric",
     month: "2-digit",
@@ -70,7 +85,7 @@ async function buildPdf(rows: any[], origin: string): Promise<Uint8Array> {
     hour: "2-digit",
     minute: "2-digit",
   });
-  doc.fontSize(10).text(`Generado: ${fechaStr} GMT+0`, { align: "center" });
+  doc.fontSize(10).text(`Generado: ${fechaStr}`, { align: "center" });
 
   doc.moveDown(1.2);
 
@@ -79,7 +94,7 @@ async function buildPdf(rows: any[], origin: string): Promise<Uint8Array> {
   const banderaDataUrl = await loadImageDataURL(origin, "/bandera.png");
 
   const headerY = doc.y;
-  const logoH = 28;
+  const logoH = 22;
 
   if (logoDataUrl) {
     // @ts-ignore - pdfkit acepta data URLs
@@ -91,7 +106,7 @@ async function buildPdf(rows: any[], origin: string): Promise<Uint8Array> {
     doc.image(banderaDataUrl, xRight, headerY, { height: logoH });
   }
 
-  doc.moveDown(1.8);
+  doc.moveDown(1.4);
 
   // === TABLA ===
   const startX = doc.page.margins.left;
@@ -169,14 +184,73 @@ async function buildPdf(rows: any[], origin: string): Promise<Uint8Array> {
   return await done;
 }
 
-// POST: usa las filas que vienen desde la UI
-export async function POST(req: NextRequest) {
+/**
+ * GET: usa Supabase en base a sedeId / categoriaId / categoriaNombre.
+ *  - ?sedeId=...&categoriaId=...&categoriaNombre=BASTOS
+ */
+export async function GET(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}));
-    const rows = (body && (body as any).rows) || body || [];
     const url = new URL(req.url);
+    const sedeId = url.searchParams.get("sedeId");
+    const categoriaId = url.searchParams.get("categoriaId");
+    const categoriaNombre = url.searchParams.get("categoriaNombre") || undefined;
 
-    const pdfU8 = await buildPdf(rows, url.origin);
+    if (!sedeId || !categoriaId) {
+      return NextResponse.json(
+        { error: "sedeId y categoriaId requeridos" },
+        { status: 400 },
+      );
+    }
+
+    const supa = supaAnon();
+    // Intentamos traer todo de la tabla de emparejamientos
+    const { data, error } = await supa
+      .from(tables.emparejamientos)
+      .select("*")
+      .eq("sede_id", sedeId)
+      .eq("categoria_id", categoriaId)
+      .order("orden", { ascending: true });
+
+    if (error) {
+      console.error("Error Supabase PDF:", error);
+      return NextResponse.json(
+        { error: error.message || "Error consultando datos" },
+        { status: 500 },
+      );
+    }
+
+    const rawRows = data || [];
+
+    // Mapear a las claves que espera el PDF
+    const rows = rawRows.map((r: any, idx: number) => ({
+      "#": idx + 1,
+      palenque: r.palenque ?? r.nro_palenque ?? r.palenque_nro ?? "",
+      jinete:
+        r.jinete ??
+        r.jinete_nombre ??
+        r.nombre_jinete ??
+        r.jineteNombre ??
+        "",
+      localidad:
+        r.localidad ??
+        r.jinete_localidad ??
+        r.localidad_jinete ??
+        "",
+      caballo:
+        r.caballo ??
+        r.caballo_nombre ??
+        r.nombre_caballo ??
+        "",
+      tropilla:
+        r.tropilla ??
+        r.tropilla_nombre ??
+        r.nombre_tropilla ??
+        "",
+      puntos: r.puntos ?? r.puntaje ?? "",
+      obs: r.obs ?? r.observaciones ?? r.observacion ?? "",
+    }));
+
+    const pdfU8 = await buildPdf(rows, url.origin, categoriaNombre);
     const arrayBuffer = pdfU8.buffer as ArrayBuffer;
 
     return new NextResponse(arrayBuffer as any, {
@@ -195,11 +269,20 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET: genera un PDF vacío (sin filas) para pruebas rápidas en el navegador
-export async function GET(req: NextRequest) {
+/**
+ * POST: PDF usando filas que vienen desde la UI (sin tocar DB).
+ *  Se puede enviar:
+ *    { rows: [...], categoriaNombre?: "BASTOS" }
+ */
+export async function POST(req: NextRequest) {
   try {
+    const body = await req.json().catch(() => ({}));
+    const rows = (body && (body as any).rows) || body || [];
+    const categoriaNombre =
+      (body && (body as any).categoriaNombre) || undefined;
     const url = new URL(req.url);
-    const pdfU8 = await buildPdf([], url.origin);
+
+    const pdfU8 = await buildPdf(rows, url.origin, categoriaNombre);
     const arrayBuffer = pdfU8.buffer as ArrayBuffer;
 
     return new NextResponse(arrayBuffer as any, {
