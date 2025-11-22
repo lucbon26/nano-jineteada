@@ -107,32 +107,21 @@ export default function Preparar() {
     observaciones: r.observaciones || "",
   }));
 
-  // Nombre de la categoría seleccionada (para el título del PDF)
-  const categoriaSeleccionada = cats.find(c => String(c.id) === String(categoriaId));
-  const categoriaNombre = categoriaSeleccionada?.nombre || "";
-
   const form = document.createElement("form");
   form.method = "POST";
   form.action = "/api/pdf/sorteo";
   form.target = "_blank";
 
-  const inputRows = document.createElement("input");
-  inputRows.type = "hidden";
-  inputRows.name = "rows";
-  inputRows.value = JSON.stringify(rows);
+  const input = document.createElement("input");
+  input.type = "hidden";
+  input.name = "rows";
+  input.value = JSON.stringify(rows);
 
-  const inputCat = document.createElement("input");
-  inputCat.type = "hidden";
-  inputCat.name = "categoriaNombre";
-  inputCat.value = categoriaNombre;
-
-  form.appendChild(inputRows);
-  form.appendChild(inputCat);
+  form.appendChild(input);
   document.body.appendChild(form);
   form.submit();
   form.remove();
 }
-
 
   return (
     <main className="space-y-6">

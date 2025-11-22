@@ -221,7 +221,7 @@ async function buildPdf(
   let y = doc.y;
 
   const drawRow = (cols: string[], isHeader = false) => {
-    const h = isHeader ? 28 : 24; // filas más altas
+    const h = isHeader ? 30 : 26; // filas más altas
     if (y + h > doc.page.height - doc.page.margins.bottom) {
       doc.addPage();
       y = doc.page.margins.top;
