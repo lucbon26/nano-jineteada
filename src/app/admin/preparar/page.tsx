@@ -133,6 +133,7 @@ export default function Preparar() {
   form.remove();
 }
 
+// <!-- <button className="border rounded px-3 py-2" onClick={loadCaballos}>Ver caballos</button> -->
 
   return (
     <main className="space-y-6">
@@ -155,7 +156,7 @@ export default function Preparar() {
         </select>
         <div className="flex gap-2">
           <button className="border rounded px-3 py-2" onClick={loadJinetes}>Cargar inscriptos</button>
-          <button className="border rounded px-3 py-2" onClick={loadCaballos}>Ver caballos</button>
+        
         </div>
       </div>
 
